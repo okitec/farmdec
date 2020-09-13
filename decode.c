@@ -74,15 +74,16 @@ enum Op {
 	A64_ROR_IMM // ROR Rd, Rs, #shift -- EXTR alias (Rm := Rs, Rn := Rs)
 };
 
+// XXX keep it at 16 bytes if possible
 struct Inst {
 	Op   op;
-	bool w32;       // use 32-bit register facet?
-	bool set_flags; // set NZCV flags?
-	Reg  rd;
-	Reg  rn;
+	u8 flags; // see enum flagmasks for meaning
+	Reg  rd;  // destination register
+	Reg  rn;  // first (or only) operand
+	Reg  rm;  // second operand
 	union {
-		u32 imm;     // primary immediate
-		u16 imm2[2]; // two immediates where necessary
+		u64 imm;     // primary immediate
+		u32 imm2[2]; // two immediates where necessary
 	};
 };
 
@@ -90,6 +91,11 @@ struct Inst {
 enum imm2_indexes {
 	IMMR = 0,
 	IMMS = 1
+};
+
+enum flagmasks {
+	W32 = 1 << 0,       // use the 32-bit W0...W31 facets?
+	SET_FLAGS = 1 << 1, // modify the NZCV flags? (S mnemonic suffix)
 };
 
 static Inst UNKNOWN_INST = {
@@ -165,7 +171,8 @@ static Inst data_proc_imm(u32 binst) {
 
 	// Bit 31 (sf) controls length of registers (0 → 32 bit, 1 → 64 bit)
 	// for most of these data processing operations.
-	inst.w32 = (top3 & 0b100) == 0;
+	if ((top3 & 0b100) == 0)
+		inst.flags |= W32;
 
 	switch (kind) {
 	case Unknown:
@@ -177,7 +184,7 @@ static Inst data_proc_imm(u32 binst) {
 		else
 			inst.op = A64_ADRP;
 
-		inst.w32 = false; // no 32-bit variant for these
+		inst.flags &= ~W32; // no 32-bit variant for these
 
 		u64 immhi = binst & (0b111111111111111111 << 5);
 		u64 immlo = top3 & 0b011;
@@ -200,7 +207,8 @@ static Inst data_proc_imm(u32 binst) {
 	case AddSub: {
 		bool is_add = (top3 & 0b010) == 0;
 		inst.op = (is_add) ? A64_ADD_IMM : A64_SUB_IMM;
-		inst.set_flags = (top3 & 0b001) > 0;
+		if (top3 & 0b001)
+			inst.flags |= SET_FLAGS;
 
 		u64 unshifted_imm = (binst >> 10) & 0b111111111111;
 		bool shift_by_12 = (binst & (1 << 22)) > 0;
@@ -217,7 +225,7 @@ static Inst data_proc_imm(u32 binst) {
 		case 0b10: inst.op = A64_EOR_IMM; break;
 		case 0b11:
 			inst.op = (regRd(binst) == ZERO_REG) ? A64_TST_IMM : A64_AND_IMM;
-			inst.set_flags = true;
+			inst.flags |= SET_FLAGS;
 			break;
 		}
 
@@ -251,7 +259,7 @@ static Inst data_proc_imm(u32 binst) {
 		// Now that we have the immediates, we can check for fitting aliases.
 		switch (inst.op) {
 		case A64_SBFM:
-			if ((inst.w32 && imms == 31) || (!inst.w32 && imms == 63)) {
+			if (((inst.flags & W32) && imms == 31) || (!(inst.flags & W32) && imms == 63)) {
 				// SBFM Rd, Rn, #immr, #31/#63 -> ASR (shift := immr)
 				inst.op = A64_ASR_IMM;
 				inst.imm = immr;
@@ -296,7 +304,7 @@ static Inst data_proc_imm(u32 binst) {
 		break; // XXX
 	}
 	case Extract: {
-		printf("extract not supported");
+		printf("extract not supported\n");
 		break; // XXX
 	}
 	}
@@ -323,24 +331,24 @@ int decode(u32 *in, int n, Inst *out) {
 			break;
 		case 0b1010:
 		case 0b1011: // 101x
-			printf("Branches & sys instrs not supported"); // XXX
+			printf("0x%04lx: Branches & sys instrs not supported\n", 4*i); // XXX
 			out[i] = UNKNOWN_INST;
 			break;
 		case 0b0100:
 		case 0b0110:
 		case 0b1100:
 		case 0b1110: // x1x0
-			printf("Loads & stores not supported"); // XXX
+			printf("0x%04lx: Loads & stores not supported\n", 4*i); // XXX
 			out[i] = UNKNOWN_INST;
 			break;
 		case 0b0101:
 		case 0b1101: // x101
-			printf("Register data processing not supported"); // XXX
+			printf("0x%04lx: Register data processing not supported\n", 4*i); // XXX
 			out[i] = UNKNOWN_INST;
 			break;
 		case 0b0111:
 		case 0b1111: // x111
-			printf("FP+SIMD processing not supported"); // XXX
+			printf("0x%04lx: FP+SIMD processing not supported\n", 4*i); // XXX
 			out[i] = UNKNOWN_INST;
 			break;
 		default:
@@ -353,7 +361,7 @@ int decode(u32 *in, int n, Inst *out) {
 
 // 20M instructions, for stress-testing. It can't be in main() because
 // allocating that much on the stack immediately leads to a segfault.
-#define NINST (20 * 1024 * 1024)
+#define NINST (20)
 u32 ibuf[NINST];
 Inst obuf[NINST];
 
@@ -364,19 +372,44 @@ int main(int argc, char **argv) {
 	printf("#inst:     %6dM\nibuf size: %6.1fM\nobuf size: %6.1fM\ntotal:     %6.1fM\n",
 		NINST / (1024 * 1024), ibufM, obufM, totalM);
 
+	// Little-endian bytes. The output of the shell-storm.org assembler is
+	// in this format, so we mirror it for convenience.
+	/*
+		and     w11, w20, #0xff
+		orr     x8, x8, x22
+		mov     x1, x19
+		ldp     x20, x19, [sp, #48]
+		ldp     x22, x21, [sp, #32]
+		ldp     x24, x23, [sp, #16]
+		orr     x8, x8, x9
+		orr     x8, x8, x10
+		orr     x0, x8, x11, lsl #48
+		ldp     x29, x30, [sp], #64
+		ret
+	*/
+	unsigned char *sample = "\x8b\x1e\x00\x12\x08\x01\x16\xaa\xe1\x03\x13\xaa\xf4\x4f\x43\xa9\xf6\x57\x42\xa9\xf8\x5f\x41\xa9\x08\x01\x09\xaa\x08\x01\x0a\xaa\x00\xc1\x0b\xaa\xfd\x7b\xc4\xa8\xc0\x03\x5f\xd6";
+
+	// We just repeat the sample one instruction at a time until NINST is reached.
+	unsigned char *p = sample;
 	for (int i = 0; i < NINST; i++) {
-		ibuf[i] = 0b10010001000101010101010000100000; // ADD IMM X0, X1, #0b010101010101 (0x555)
+		// Little endian to native endianness. The values must be unsigned bytes.
+		u32 binst = (p[0] << 0) | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
+		ibuf[i] = binst;
+
+		p += 4;
+		if (*p == '\0') // end of string
+			p = sample; // -> start from the beginning
 	}
 
 	decode(ibuf, NINST, obuf);
 
-	if (0) {
+	if (1) {
 		for (int i = 0; i < NINST; i++) {
 			Inst inst = obuf[i];
-			char regch = (inst.w32) ? 'W' : 'X';
-			char flagsch = (inst.set_flags) ? 'S' : ' ';
+			char regch = (inst.flags & W32) ? 'W' : 'X';
+			char flagsch = (inst.flags & SET_FLAGS) ? 'S' : ' ';
 
-			printf("%d%c %c%d, %c%d, #0x%x\n", inst.op, flagsch,
+			printf("0x%04lx: %d%c %c%d, %c%d, #0x%lx\n", 4*i, inst.op, flagsch,
 				regch, inst.rd, regch, inst.rn, inst.imm);
 		}
 	}
