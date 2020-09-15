@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+typedef unsigned int uint;
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -314,8 +315,8 @@ static Inst data_proc_imm(u32 binst) {
 
 // decode decodes n binary instructions from the input buffer and
 // puts them in the output buffer, which must have space for n Insts.
-int decode(u32 *in, int n, Inst *out) {
-	int i;
+int decode(u32 *in, uint n, Inst *out) {
+	uint i;
 	for (i = 0; i < n; i++) {
 		u32 binst = in[i];
 		u32 op0 = (binst >> 25) & 0b1111;
@@ -338,17 +339,17 @@ int decode(u32 *in, int n, Inst *out) {
 		case 0b0110:
 		case 0b1100:
 		case 0b1110: // x1x0
-			printf("0x%04lx: Loads & stores not supported\n", 4*i); // XXX
+			printf("0x%04x: Loads & stores not supported\n", 4*i); // XXX
 			out[i] = UNKNOWN_INST;
 			break;
 		case 0b0101:
 		case 0b1101: // x101
-			printf("0x%04lx: Register data processing not supported\n", 4*i); // XXX
+			printf("0x%04x: Register data processing not supported\n", 4*i); // XXX
 			out[i] = UNKNOWN_INST;
 			break;
 		case 0b0111:
 		case 0b1111: // x111
-			printf("0x%04lx: FP+SIMD processing not supported\n", 4*i); // XXX
+			printf("0x%04x: FP+SIMD processing not supported\n", 4*i); // XXX
 			out[i] = UNKNOWN_INST;
 			break;
 		default:
@@ -359,9 +360,9 @@ int decode(u32 *in, int n, Inst *out) {
 	return i;
 }
 
-// 20M instructions, for stress-testing. It can't be in main() because
-// allocating that much on the stack immediately leads to a segfault.
-#define NINST (20)
+// Buffers not in main because allocating hundreds of MB on the stack
+// leads to a segfault.
+#define NINST (11)
 u32 ibuf[NINST];
 Inst obuf[NINST];
 
@@ -372,44 +373,55 @@ int main(int argc, char **argv) {
 	printf("#inst:     %6dM\nibuf size: %6.1fM\nobuf size: %6.1fM\ntotal:     %6.1fM\n",
 		NINST / (1024 * 1024), ibufM, obufM, totalM);
 
-	// Little-endian bytes. The output of the shell-storm.org assembler is
-	// in this format, so we mirror it for convenience.
 	/*
-		and     w11, w20, #0xff
-		orr     x8, x8, x22
-		mov     x1, x19
-		ldp     x20, x19, [sp, #48]
-		ldp     x22, x21, [sp, #32]
-		ldp     x24, x23, [sp, #16]
-		orr     x8, x8, x9
-		orr     x8, x8, x10
-		orr     x0, x8, x11, lsl #48
-		ldp     x29, x30, [sp], #64
-		ret
+		0000 and     w11, w20, #0xff
+		0004 orr     x8, x8, x22
+		0008 mov     x1, x19
+		000c ldp     x20, x19, [sp, #48]
+		0010 ldp     x22, x21, [sp, #32]
+		0014 ldp     x24, x23, [sp, #16]
+		0018 orr     x8, x8, x9
+		001c orr     x8, x8, x10
+		0020 orr     x0, x8, x11, lsl #48
+		0024 ldp     x29, x30, [sp], #64
+		0028 ret
 	*/
-	unsigned char *sample = "\x8b\x1e\x00\x12\x08\x01\x16\xaa\xe1\x03\x13\xaa\xf4\x4f\x43\xa9\xf6\x57\x42\xa9\xf8\x5f\x41\xa9\x08\x01\x09\xaa\x08\x01\x0a\xaa\x00\xc1\x0b\xaa\xfd\x7b\xc4\xa8\xc0\x03\x5f\xd6";
+	unsigned char sample[] = {
+		0x8b, 0x1e, 0x00, 0x12,
+		0x08, 0x01, 0x16, 0xaa,
+		0xe1, 0x03, 0x13, 0xaa,
+		0xf4, 0x4f, 0x43, 0xa9,
+		0xf6, 0x57, 0x42, 0xa9,
+		0xf8, 0x5f, 0x41, 0xa9,
+		0x08, 0x01, 0x09, 0xaa,
+		0x08, 0x01, 0x0a, 0xaa,
+		0x00, 0xc1, 0x0b, 0xaa,
+		0xfd, 0x7b, 0xc4, 0xa8,
+		0xc0, 0x03, 0x5f, 0xd6,
+		0x00, 0x00, 0x00, 0x00,
+	};
 
 	// We just repeat the sample one instruction at a time until NINST is reached.
-	unsigned char *p = sample;
-	for (int i = 0; i < NINST; i++) {
+	unsigned char *p = (unsigned char *)sample;
+	for (uint i = 0; i < NINST; i++) {
 		// Little endian to native endianness. The values must be unsigned bytes.
 		u32 binst = (p[0] << 0) | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
 		ibuf[i] = binst;
 
 		p += 4;
-		if (*p == '\0') // end of string
-			p = sample; // -> start from the beginning
+		if (p[0] == 0 && p[1] == 0 && p[2] == 0 && p[3] == 0) // end of sample array
+			p = (unsigned char *) sample; // -> start from the beginning
 	}
 
 	decode(ibuf, NINST, obuf);
 
 	if (1) {
-		for (int i = 0; i < NINST; i++) {
+		for (uint i = 0; i < NINST; i++) {
 			Inst inst = obuf[i];
 			char regch = (inst.flags & W32) ? 'W' : 'X';
 			char flagsch = (inst.flags & SET_FLAGS) ? 'S' : ' ';
 
-			printf("0x%04lx: %d%c %c%d, %c%d, #0x%lx\n", 4*i, inst.op, flagsch,
+			printf("0x%04x: %d%c %c%d, %c%d, #0x%lx\n", 4*i, inst.op, flagsch,
 				regch, inst.rd, regch, inst.rn, inst.imm);
 		}
 	}
