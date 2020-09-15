@@ -72,18 +72,43 @@ enum Op {
 
 	// Extract
 	A64_EXTR,
-	A64_ROR_IMM // ROR Rd, Rs, #shift -- EXTR alias (Rm := Rs, Rn := Rs)
+	A64_ROR_IMM, // ROR Rd, Rs, #shift -- EXTR alias (Rm := Rs, Rn := Rs)
+
+	/*** Branches, Exception Generating and System Instructions ***/
+
+	A64_BCOND, // XXX idk, how to represent conds? all as different opcodes?
+
+	// XXX system instructions
+
+	// Unconditional branch (register)
+	A64_BR,
+	A64_BLR,
+	A64_RET,
+
+	// Unconditional branch (immediate)
+	A64_B,
+	A64_BL,
+
+	// Compare and branch (immediate)
+	A64_CBZ,
+	A64_CBNZ,
+
+	// Test and branch (immediate)
+	A64_TBZ,
+	A64_TBNZ
 };
 
 // XXX keep it at 16 bytes if possible
 struct Inst {
-	Op   op;
-	u8 flags; // see enum flagmasks for meaning
-	Reg  rd;  // destination register
-	Reg  rn;  // first (or only) operand
-	Reg  rm;  // second operand
+	Op  op;
+	u8 flags; // lower four bits: see enum flagmasks; upper four bit: see enum Cond
+	Reg rd;  // destination register - Rd
+	Reg rn;  // first (or only) operand - Rn, Rt
+	Reg rm;  // second operand - Rm
 	union {
 		u64 imm;     // primary immediate
+		u64 offset;  // alternative to imm for branches: PC-relative byte offset
+		Reg ra;      // third operand for 3-source data proc instrs (MADD, etc.)
 		u32 imm2[2]; // two immediates where necessary
 	};
 };
@@ -357,6 +382,127 @@ static Inst data_proc_imm(u32 binst) {
 	return inst;
 }
 
+static Inst branches(u32 binst) {
+	Inst inst = UNKNOWN_INST;
+	u32 top7 = (binst >> 25) & 0b1111111;
+
+	enum {
+		Unknown,
+		CondBranch,      // B.cond
+		System,          // many instructions, mostly irrelevant
+		UncondBranchReg, // BR, BRL, RET
+		UncondBranch,    // B, BL
+		CmpAndBranch,    // CBZ, CBNZ
+		TestAndBranch    // TBZ, TBNZ
+	} kind = Unknown;
+
+	// XXX there are more patterns for less important instructions.
+	// XXX order everything by the table in the documentation.
+	switch (top7) {
+	case 0b0101010:
+		kind = CondBranch;
+		break;
+
+	case 0b1101010:
+		// Exception generation, hints, barriers, PSTATE, sys instrs, sys reg moves.
+		// Most of them are entirely unimportant for us, the probable exceptions being
+		// barriers and CFINV.
+		kind = System;
+		break;
+
+	case 0b1101011:
+		kind = UncondBranchReg;
+		break;
+
+	case 0b0001010:
+	case 0b0001011:
+	case 0b1001010:
+	case 0b1001011: // x00101x
+		kind = UncondBranch;
+		break;
+
+	case 0b0011010:
+	case 0b1011010: // x011010
+		kind = CmpAndBranch;
+		break;
+
+	case 0b0011011:
+	case 0b1011011: // x011011
+		kind = TestAndBranch;
+		break;
+
+	default:
+		return UNKNOWN_INST;
+	}
+
+	// For branches, the actual byte offset is the immediate times 4.
+	// Hence the multiplications.
+
+	// XXX virtual address would help in pre-calculating absolute address
+	// XXX like fadec. We could do that in an after-pass to avoid an extra
+	// XXX argument for every function.
+
+	switch (kind) {
+	case Unknown:
+		return UNKNOWN_INST;
+
+	case CondBranch:
+		inst.flags = set_cond(inst.flags, binst & 0b1111);
+		inst.offset = 4 * ((binst >> 5) & 0b1111111111111111111); // imm19
+		break;
+
+	case System:
+		printf("System instructions not supported\n");
+		break; // XXX _some_ should be decoded. barriers, CFINV
+
+	case UncondBranchReg: {
+		u32 op = (binst >> 21) & 0b11;
+		switch (op) {
+		case 0b00: inst.op = A64_BR;  break;
+		case 0b01: inst.op = A64_BLR; break;
+		case 0b10: inst.op = A64_RET; break;
+		default:
+			return UNKNOWN_INST;
+		}
+
+		inst.rn = regRn(binst);
+		break;
+	}
+	case UncondBranch:
+		inst.op = (binst & (1<<31)) ? A64_BL : A64_B; // MSB = 1 → BL
+		inst.offset = 4 * (binst & 0b11111111111111111111111111); // imm26
+		break;
+
+	case CmpAndBranch: {
+		if ((top7 & 0b1000000) == 0)
+			inst.flags |= W32;
+
+		bool zero = (binst & (1 << 24)) == 0;
+		inst.op = (zero) ? A64_CBZ : A64_CBNZ;
+
+		inst.offset = 4 * ((binst >> 5) & 0b1111111111111111111); // imm19
+		inst.rn = binst & 0b11111; // Rt; not modified → Inst.rn, not .rd
+		break;
+	}
+	case TestAndBranch: {
+		if ((top7 & 0b1000000) == 0)
+			inst.flags |= W32;
+
+		bool zero = (binst & (1 << 24)) == 0;
+		inst.op = (zero) ? A64_TBZ : A64_TBNZ;
+
+		inst.imm2[0] = 4 * ((binst >> 5) & 0b11111111111111); // imm14
+		u32 b40 = (binst >> 19) & 0b11111;
+		u32 b5 = binst & (1<<31);
+		inst.imm2[1] = (b5 >> (31-5)) | b40; // b5:b40
+		inst.rn = binst & 0b11111;           // Rt; not modified → Inst.rn, not .rd
+		break;
+	}
+	}
+
+	return inst;
+}
+
 // decode decodes n binary instructions from the input buffer and
 // puts them in the output buffer, which must have space for n Insts.
 int decode(u32 *in, uint n, Inst *out) {
@@ -376,8 +522,7 @@ int decode(u32 *in, uint n, Inst *out) {
 			break;
 		case 0b1010:
 		case 0b1011: // 101x
-			printf("0x%04lx: Branches & sys instrs not supported\n", 4*i); // XXX
-			out[i] = UNKNOWN_INST;
+			out[i] = branches(binst);
 			break;
 		case 0b0100:
 		case 0b0110:
