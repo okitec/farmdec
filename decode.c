@@ -305,8 +305,16 @@ static Inst data_proc_imm(u32 binst) {
 		break; // XXX
 	}
 	case Extract: {
-		printf("extract not supported\n");
-		break; // XXX
+		inst.op = A64_EXTR;
+		inst.imm = (binst >> 10) & 0b111111;
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		if (inst.rn == inst.rm) {
+			inst.op = A64_ROR_IMM;
+			inst.rm = 0; // unused for ROR_IMM → clear again
+		}
+		break;
 	}
 	}
 
