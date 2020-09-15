@@ -99,6 +99,42 @@ enum flagmasks {
 	SET_FLAGS = 1 << 1, // modify the NZCV flags? (S mnemonic suffix)
 };
 
+typedef enum Cond Cond;
+
+// The condition bits used by conditial branches, selects and compares, stored in the
+// upper four bit of the Inst.flags field. The first three bits determine the condition
+// proper while the LSB inverts the condition if set.
+enum Cond {
+	COND_EQ = 0b0000,  // =
+	COND_NE = 0b0001,  // ≠
+	COND_CS = 0b0010,  // Carry Set
+	COND_HS = COND_CS, // ≥, Unsigned
+	COND_CC = 0b0011,  // Carry Clear
+	COND_LO = COND_CC, // <, Unsigned
+	COND_MI = 0b0100,  // < 0 (MInus)
+	COND_PL = 0b0101,  // ≥ 0 (PLus)
+	COND_VS = 0b0110,  // Signed Overflow
+	COND_VC = 0b0111,  // No Signed Overflow
+	COND_HI = 0b1000,  // >, Unsigned
+	COND_LS = 0b1001,  // ≤, Unsigned
+	COND_GE = 0b1010,  // ≥, Signed
+	COND_LT = 0b1011,  // <, Signed
+	COND_GT = 0b1100,  // >, Signed
+	COND_LE = 0b1101,  // ≤, Signed
+	COND_AL = 0b1110,  // Always true
+	COND_NV = 0b1111,  // Always true (not "never" as in A32!)
+};
+
+static Cond get_cond(u8 flags) {
+	return (flags >> 4) & 0b1111;
+}
+
+static u8 set_cond(u8 flags, Cond cond) {
+	flags &= 0x0F; // clear cond bits first
+	flags |= cond << 4;
+	return flags;
+}
+
 static Inst UNKNOWN_INST = {
 	op: A64_UNKNOWN,
 	// all other fields: zero
