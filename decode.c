@@ -3,10 +3,11 @@
 #include <stdio.h>
 
 typedef unsigned int uint;
-typedef uint8_t u8;
+typedef uint8_t   u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
+typedef int64_t  s64;
 
 typedef enum Op Op;
 typedef u8 Reg;
@@ -107,7 +108,7 @@ struct Inst {
 	Reg rm;  // second operand - Rm
 	union {
 		u64 imm;     // primary immediate
-		u64 offset;  // alternative to imm for branches: PC-relative byte offset
+		s64 offset;  // alternative to imm for branches: PC-relative byte offset
 		Reg ra;      // third operand for 3-source data proc instrs (MADD, etc.)
 		u32 imm2[2]; // two immediates where necessary
 	};
@@ -170,7 +171,7 @@ static Reg regRd(u32 binst) {
 	return binst & 0b11111;
 }
 
-// The source register Rn, if present, occupies bits 5..9.
+// The first operand register Rn, if present, occupies bits 5..9.
 static Reg regRn(u32 binst) {
 	return (binst >> 5) & 0b11111;
 }
@@ -180,6 +181,15 @@ enum {
 	// stack pointer for others.
 	ZERO_REG = 31
 };
+
+// sext sign-extends the b-bits number in x to 64 bit. The upper (64-b) bits
+// must be zero. Seldom needed, but fiddly.
+//
+// Taken from https://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
+static s64 sext(u64 x, u8 b) {
+	s64 mask = 1U << (b - 1);
+	return (((s64)x) ^ mask) - mask;
+}
 
 static Inst data_proc_imm(u32 binst) {
 	Inst inst = UNKNOWN_INST;
@@ -448,7 +458,7 @@ static Inst branches(u32 binst) {
 
 	case CondBranch:
 		inst.flags = set_cond(inst.flags, binst & 0b1111);
-		inst.offset = 4 * ((binst >> 5) & 0b1111111111111111111); // imm19
+		inst.offset = 4 * sext((binst >> 5) & 0b1111111111111111111, 19); // imm19
 		break;
 
 	case System:
@@ -470,7 +480,7 @@ static Inst branches(u32 binst) {
 	}
 	case UncondBranch:
 		inst.op = (binst & (1<<31)) ? A64_BL : A64_B; // MSB = 1 → BL
-		inst.offset = 4 * (binst & 0b11111111111111111111111111); // imm26
+		inst.offset = 4 * sext(binst & 0b11111111111111111111111111, 26); // imm26
 		break;
 
 	case CmpAndBranch: {
@@ -480,7 +490,7 @@ static Inst branches(u32 binst) {
 		bool zero = (binst & (1 << 24)) == 0;
 		inst.op = (zero) ? A64_CBZ : A64_CBNZ;
 
-		inst.offset = 4 * ((binst >> 5) & 0b1111111111111111111); // imm19
+		inst.offset = 4 * sext((binst >> 5) & 0b1111111111111111111, 19); // imm19
 		inst.rn = binst & 0b11111; // Rt; not modified → Inst.rn, not .rd
 		break;
 	}
@@ -491,7 +501,7 @@ static Inst branches(u32 binst) {
 		bool zero = (binst & (1 << 24)) == 0;
 		inst.op = (zero) ? A64_TBZ : A64_TBNZ;
 
-		inst.imm2[0] = 4 * ((binst >> 5) & 0b11111111111111); // imm14
+		inst.imm2[0] = 4 * sext((binst >> 5) & 0b11111111111111, 14); // imm14
 		u32 b40 = (binst >> 19) & 0b11111;
 		u32 b5 = binst & (1<<31);
 		inst.imm2[1] = (b5 >> (31-5)) | b40; // b5:b40
@@ -551,7 +561,7 @@ int decode(u32 *in, uint n, Inst *out) {
 
 // Buffers not in main because allocating hundreds of MB on the stack
 // leads to a segfault.
-#define NINST (11)
+#define NINST (28)
 u32 ibuf[NINST];
 Inst obuf[NINST];
 
@@ -563,6 +573,7 @@ int main(int argc, char **argv) {
 		NINST / (1024 * 1024), ibufM, obufM, totalM);
 
 	/*
+	.LBB1_9:
 		0000 and     w11, w20, #0xff
 		0004 orr     x8, x8, x22
 		0008 mov     x1, x19
@@ -574,6 +585,25 @@ int main(int argc, char **argv) {
 		0020 orr     x0, x8, x11, lsl #48
 		0024 ldp     x29, x30, [sp], #64
 		0028 ret
+	.LBB1_10:
+		002c tst     w21, #0x40000000
+		0030 mov     w8, #6
+		0034 ubfx    w10, w21, #10, #12
+		0038 mvn     w9, w21
+		003c cinc    x22, x8, ne
+		0040 lsl     x8, x10, #12
+		0044 tst     w21, #0x400000
+		0048 mov     w0, w21
+		004c ubfx    w23, w21, #29, #1
+		0050 lsr     w24, w9, #31
+		0054 csel    x19, x10, x8, eq
+		0058 mov     w20, w0
+		005c mov     w0, w21
+		0060 lsl     x10, x0, #56
+		0064 lsl     x9, x23, #40
+		0068 lsl     x8, x24, #32
+		006c b       .LBB1_9
+
 	*/
 	unsigned char sample[] = {
 		0x8b, 0x1e, 0x00, 0x12,
@@ -587,7 +617,24 @@ int main(int argc, char **argv) {
 		0x00, 0xc1, 0x0b, 0xaa,
 		0xfd, 0x7b, 0xc4, 0xa8,
 		0xc0, 0x03, 0x5f, 0xd6,
-		0x00, 0x00, 0x00, 0x00,
+
+		0xbf, 0x02, 0x02, 0x72,
+		0xc8, 0x00, 0x80, 0x52,
+		0xaa, 0x56, 0x0a, 0x53,
+		0xe9, 0x03, 0x35, 0x2a,
+		0x16, 0x05, 0x88, 0x9a,
+		0x48, 0xcd, 0x74, 0xd3,
+		0xbf, 0x02, 0x0a, 0x72,
+		0xe0, 0x03, 0x15, 0x2a,
+		0xb7, 0x76, 0x1d, 0x53,
+		0x38, 0x7d, 0x1f, 0x53,
+		0x53, 0x01, 0x88, 0x9a,
+		0xf4, 0x03, 0x00, 0x2a,
+		0xe0, 0x03, 0x15, 0x2a,
+		0x0a, 0x1c, 0x48, 0xd3,
+		0xe9, 0x5e, 0x58, 0xd3,
+		0x08, 0x7f, 0x60, 0xd3,
+		0xe5, 0xff, 0xff, 0x17
 	};
 
 	// We just repeat the sample one instruction at a time until NINST is reached.
@@ -610,8 +657,11 @@ int main(int argc, char **argv) {
 			char regch = (inst.flags & W32) ? 'W' : 'X';
 			char flagsch = (inst.flags & SET_FLAGS) ? 'S' : ' ';
 
-			printf("0x%04x: %d%c %c%d, %c%d, #0x%lx\n", 4*i, inst.op, flagsch,
-				regch, inst.rd, regch, inst.rn, inst.imm);
+			// We do not disambiguate here -- all instructions are printed
+			// the same; for example, instructions with two immediates (using
+			// the imm2[] field) have the imm field printed too.
+			printf("0x%04x: %d%c %c%d, %c%d, %c%d, imm=%lu, imm2=(%u,%u), offset=%4ld\n", 4*i, inst.op, flagsch,
+				regch, inst.rd, regch, inst.rn, regch, inst.rm, inst.imm, inst.imm2[0], inst.imm2[1], inst.offset);
 		}
 	}
 
