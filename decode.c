@@ -26,7 +26,7 @@ typedef struct Inst Inst;
 // is encoded in fields of Inst, not in the opcode, so ADDS is represented
 // by A64_ADD_*.
 enum Op {
-	A64_UNKNOWN, // an invalid or (to us) unknown instruction
+	A64_UNKNOWN, // an invalid (Inst.error != NULL) or (to us) unknown instruction
 	A64_UDF,     // throws undefined exception
 
 	/*** Data Processing -- Immediate ***/
@@ -205,8 +205,20 @@ struct Inst {
 		s64 offset;  // alternative to imm for branches: PC-relative byte offset
 		Reg ra;      // third operand for 3-source data proc instrs (MADD, etc.)
 		u32 imm2[2]; // two immediates where necessary
+		char *error; // error string for op = A64_UNKNOWN, may be NULL
 	};
 };
+
+static Inst UNKNOWN_INST = {
+	op: A64_UNKNOWN,
+	// all other fields: zero
+};
+
+static Inst errinst(char *err) {
+	Inst inst = UNKNOWN_INST;
+	inst.error = err;
+	return inst;
+}
 
 // The meaning of the Inst.imm2 field.
 enum imm2_indexes {
@@ -285,11 +297,6 @@ enum Size {
 	SZ_H = 0b01, // Halfword - 16 bit
 	SZ_W = 0b10, // Word     - 32 bit
 	SZ_X = 0b11, // Extended - 64 bit
-};
-
-static Inst UNKNOWN_INST = {
-	op: A64_UNKNOWN,
-	// all other fields: zero
 };
 
 // The destination register Rd, if present, occupies bits 0..4.
@@ -404,8 +411,7 @@ static Inst data_proc_imm(u32 binst) {
 		else
 			return UNKNOWN_INST;
 
-		printf("ADDG, SUBG not supported"); // XXX
-		return UNKNOWN_INST;
+		return errinst("ADDG, SUBG not supported"); // XXX should they even? no other tag instrs are.
 
 	case AddSub: {
 		bool is_add = (top3 & 0b010) == 0;
@@ -444,8 +450,7 @@ static Inst data_proc_imm(u32 binst) {
 		break;
 	}
 	case Move: {
-		printf("Move (imm) not supported");
-		break; // XXX
+		return errinst("Move (imm) not supported"); // XXX
 	}
 	case Bitfield: {
 		switch (top3 & 0b011) { // base instructions at this point
@@ -453,7 +458,7 @@ static Inst data_proc_imm(u32 binst) {
 		case 0b01: inst.op = A64_BFM;  break;
 		case 0b10: inst.op = A64_UBFM; break;
 		default:
-			return UNKNOWN_INST;
+			return errinst("data_proc_imm/Bitfield: neither SBFM, BFM OR UBFM");
 		}
 
 		u64 immr = (binst >> 16) & 0b111111;
@@ -489,22 +494,21 @@ static Inst data_proc_imm(u32 binst) {
 			// There is no SBFM general case not handled by an alias
 			// XXX is that true?
 		case A64_BFM:
-			printf("BFM not implemented"); // XXX
+			// XXX BFM aliases not implemented
 			break;
 
 		case A64_UBFM:
-			printf("UBFM not implemented"); // XXX
+			// XXX UBFM aliases not implemented
 			// XXX how to re-use parts of SBFM?
 			break;
 		default:
-			// cannot happen
-			return UNKNOWN_INST;
+			return errinst("data_proc_imm/Bitfield: cannot happen");
 		}
 
 	regs:
 		inst.rd = regRd(binst);
 		inst.rn = regRn(binst);
-		break; // XXX
+		break;
 	}
 	case Extract: {
 		inst.op = A64_EXTR;
@@ -593,8 +597,7 @@ static Inst branches(u32 binst) {
 		break;
 
 	case System:
-		printf("System instructions not supported\n");
-		break; // XXX _some_ should be decoded. barriers, CFINV
+		return errinst("System instructions not supported"); // XXX _some_ should be decoded. barriers, CFINV
 
 	case UncondBranchReg: {
 		u32 op = (binst >> 21) & 0b11;
@@ -944,12 +947,12 @@ static Inst data_proc_reg(u32 binst) {
 		case 0b101: inst.op = (sub) ? A64_UMADDL : A64_UMSUBL; break;
 		case 0b110: inst.op = A64_UMULH; break;
 		default:
-			return UNKNOWN_INST;
+			return errinst("data_proc_reg/DataProc3: invalid opcode");
 		}
 
 		// Only MADD und MSUB have 32-bit variants.
 		if ((top3 & 0b100) == 0 && inst.op != A64_MADD && inst.op != A64_MSUB)
-			return UNKNOWN_INST;
+			return errinst("data_proc_reg/DataProc3: no 32-bit variant except for MADD and MSUB");
 
 		inst.rd = regRd(binst);
 		inst.rn = regRn(binst);
@@ -1004,8 +1007,7 @@ int decode(u32 *in, uint n, Inst *out) {
 		case 0b0110:
 		case 0b1100:
 		case 0b1110: // x1x0
-			printf("0x%04x: Loads & stores not supported\n", 4*i); // XXX
-			out[i] = UNKNOWN_INST;
+			out[i] = errinst("Loads & stores not supported");
 			break;
 		case 0b0101:
 		case 0b1101: // x101
@@ -1013,8 +1015,7 @@ int decode(u32 *in, uint n, Inst *out) {
 			break;
 		case 0b0111:
 		case 0b1111: // x111
-			printf("0x%04x: FP+SIMD processing not supported\n", 4*i); // XXX
-			out[i] = UNKNOWN_INST;
+			out[i] = errinst("FP+SIMD processing not supported");
 			break;
 		default:
 			out[i] = UNKNOWN_INST;
@@ -1125,6 +1126,15 @@ int main(int argc, char **argv) {
 			Inst inst = obuf[i];
 			char regch = (inst.flags & W32) ? 'W' : 'X';
 			char flagsch = (inst.flags & SET_FLAGS) ? 'S' : ' ';
+
+			if (inst.op == A64_UNKNOWN) {
+				if (inst.error != NULL) {
+					printf("0x%04x: error \"%s\"\n", 4*i, inst.error);
+				} else {
+					printf("0x%04x: ???\n", 4*i);
+				}
+				continue;
+			}
 
 			// We do not disambiguate here -- all instructions are printed
 			// the same; for example, instructions with two immediates (using
