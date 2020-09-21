@@ -47,7 +47,7 @@ enum Op {
 	A64_AND_IMM,
 	A64_ORR_IMM,
 	A64_EOR_IMM,
-	A64_TST_IMM, // TST Rd -- ANDS alias (Rd := RZR); normal ANDS is represented by A64_AND_IMM
+	A64_TST_IMM, // TST Rn -- ANDS alias (Rd := RZR, predicate Rd == ZR && set_flags)
 
 	// XXX imm. moves
 
@@ -73,7 +73,7 @@ enum Op {
 
 	// Extract
 	A64_EXTR,
-	A64_ROR_IMM, // ROR Rd, Rs, #shift -- EXTR alias (Rm := Rs, Rn := Rs)
+	A64_ROR_IMM, // ROR Rd, Rs, #shift -- EXTR alias (Rm := Rs, Rn := Rs, predicate: Rm == Rn)
 
 	/*** Branches, Exception Generating and System Instructions ***/
 
@@ -96,7 +96,101 @@ enum Op {
 
 	// Test and branch (immediate)
 	A64_TBZ,
-	A64_TBNZ
+	A64_TBNZ,
+
+	/*** Data Processing -- Register ***/
+
+	// Data-processing (2 source)
+	A64_UDIV,
+	A64_SDIV,
+	A64_LSLV,
+	A64_LSRV,
+	A64_ASRV,
+	A64_RORV,
+	A64_CRC32B,
+	A64_CRC32H,
+	A64_CRC32W,
+	A64_CRC32X,
+	A64_CRC32CB,
+	A64_CRC32CH,
+	A64_CRC32CW,
+	A64_CRC32CX,
+	A64_SUBP,
+
+	// Data-processing (1 source)
+	A64_RBIT,
+	A64_REV16,
+	A64_REV,
+	A64_REV32,
+	A64_CLZ,
+	A64_CLS,
+
+	// Logical (shifted register)
+	A64_AND_SHIFTED,
+	A64_TST_SHIFTED, // ANDS alias (Rd := ZR, predicate: Rd == ZR)
+	A64_BIC,
+	A64_ORR_SHIFTED,
+	A64_MOV_REG,     // ORR alias (predicate: shift == 0 && imm6 == 0 && Rn == ZR)
+	A64_ORN,
+	A64_EOR_SHIFTED,
+	A64_EON,
+
+	// Add/subtract (shifted register)
+	A64_ADD_SHIFTED,
+	A64_CMN_SHIFTED, // ADDS alias (Rd := ZR, predicate: Rd == ZR && set_flags)
+	A64_SUB_SHIFTED,
+	A64_CMP_SHIFTED, // SUBS alias (Rd := ZR, predicate: Rd == ZR, set_flags)
+
+	// Add/subtract (extended register)
+	// Register 31 is interpreted as the stack pointer (SP/WSP).
+	A64_ADD_EXT,
+	A64_CMN_EXT, // ADDS alias (Rd := ZR, predicate: Rd == ZR && set_flags)
+	A64_SUB_EXT,
+	A64_CMP_EXT, // SUBS alias (Rd := ZR, predicate: Rd == ZR, set_flags)
+
+	// Add/subtract (with carry)
+	A64_ADC,
+	A64_SBC,
+
+	// Rotate right into flags
+	A64_RMIF,
+
+	// Evaluate into flags
+	A64_SETF8,
+	A64_SETF16,
+
+	// Conditional compare (register)
+	A64_CCMN_REG,
+	A64_CCMP_REG,
+
+	// Conditional compare (immediate)
+	A64_CCMN_IMM,
+	A64_CCMP_IMM,
+
+	// Conditional select
+	A64_CSEL,
+	A64_CSINC,
+	A64_CSET,  // CSINC alias (cond := invert(cond), predicate: Rm == Rn == ZR)
+	A64_CSINV,
+	A64_CSETM, // CSINV alias (cond := invert(cond), predicate: Rm == Rn == ZR)
+	A64_CSNEG,
+	A64_CNEG,  // CSNEG alias (cond := invert(cond), predicate: Rm == Rn)
+
+	// Data-processing (3 source)
+	A64_MADD,
+	A64_MUL,    // MADD alias (Ra omitted, predicate: Ra == ZR)
+	A64_MSUB,
+	A64_MNEG,   // MSUB alias (^---- see above)
+	A64_SMADDL,
+	A64_SMULL,  // SMADDL alias  (^---- see above)
+	A64_SMSUBL,
+	A64_SMNEGL, // SMSUBL alias (^---- see above)
+	A64_SMULH,
+	A64_UMADDL,
+	A64_UMULL,  // UMADDL alias (^---- see above)
+	A64_UMSUBL,
+	A64_UMNEGL, // UMSUBL alias (^---- see above)
+	A64_UMULH
 };
 
 // XXX keep it at 16 bytes if possible
@@ -117,7 +211,15 @@ struct Inst {
 // The meaning of the Inst.imm2 field.
 enum imm2_indexes {
 	IMMR = 0,
-	IMMS = 1
+	CCMP_NZCV = 0,
+	SHIFT_TYPE = 0,
+	RMIF_MASK = 0,
+	EXT_TYPE = 0, // three bits: sign(1):size(2)
+	IMMS = 1,
+	CCMP_IMM5 = 1,
+	SHIFT_AMOUNT = 1,
+	RMIF_IMM6 = 1,
+	EXT_LSL = 1,  // left shift amount for extended add/sub
 };
 
 enum flagmasks {
@@ -161,6 +263,30 @@ static u8 set_cond(u8 flags, Cond cond) {
 	return flags;
 }
 
+static u8 invert_cond(u8 flags) {
+	Cond cond = get_cond(flags);
+	return set_cond(flags, cond ^ 0b001); // invert LSB
+}
+
+typedef enum Shift Shift;
+
+enum Shift {
+	SH_LSL = 0b00,
+	SH_LSR = 0b01,
+	SH_ASR = 0b10,
+	SH_ROR = 0b11, // only for RORV instruction; shifted add/sub does not support it
+	SH_RESERVED = SH_ROR
+};
+
+typedef enum Size Size;
+
+enum Size {
+	SZ_B = 0b00, // Byte     -  8 bit
+	SZ_H = 0b01, // Halfword - 16 bit
+	SZ_W = 0b10, // Word     - 32 bit
+	SZ_X = 0b11, // Extended - 64 bit
+};
+
 static Inst UNKNOWN_INST = {
 	op: A64_UNKNOWN,
 	// all other fields: zero
@@ -174,6 +300,11 @@ static Reg regRd(u32 binst) {
 // The first operand register Rn, if present, occupies bits 5..9.
 static Reg regRn(u32 binst) {
 	return (binst >> 5) & 0b11111;
+}
+
+// The second operand register Rm, if present, occupies bits 16..20.
+static Reg regRm(u32 binst) {
+	return (binst >> 16) & 0b11111;
 }
 
 enum {
@@ -513,6 +644,341 @@ static Inst branches(u32 binst) {
 	return inst;
 }
 
+static Inst data_proc_reg(u32 binst) {
+	Inst inst = UNKNOWN_INST;
+	u32 top3 = (binst >> 29) & 0b111;
+	u32 op = (binst >> 21) & 0b11111111; // op1:101:op2 bits 21..27
+
+	enum {
+		Unknown,
+		DataProc2,
+		DataProc1,
+		LogicalShifted,
+		AddSubShifted,
+		AddSubExtended,
+		AddSubCarryAndFlagManipulation,
+		CondCompare,
+		CondSelect,
+		DataProc3
+	} kind = Unknown;
+
+	switch (op) {
+	case 0b11010110: // dp2, dp1
+		kind = (top3 & 0b010) ? DataProc1 : DataProc2;
+		break;
+	case 0b01010000:
+	case 0b01010001:
+	case 0b01010010:
+	case 0b01010011:
+	case 0b01010100:
+	case 0b01010101:
+	case 0b01010110:
+	case 0b01010111: // 01010xxx
+		kind = LogicalShifted;
+		break;
+	case 0b01011000:
+	case 0b01011010:
+	case 0b01011100:
+	case 0b01011110: // 01011xx0
+		kind = AddSubShifted;
+		break;
+	case 0b01011001:
+	case 0b01011011:
+	case 0b01011101:
+	case 0b01011111: // 01011xx0
+		kind = AddSubExtended;
+		break;
+	case 0b11010000:
+		// ADC, ADCS, SBC, SBCS, RMIF, SETF8, SETF16
+		// Really similar bit patterns, so treat it as one kind.
+		kind = AddSubCarryAndFlagManipulation;
+		break;
+	case 0b11010010:
+		kind = CondCompare;
+		break;
+	case 0b11010100:
+		kind = CondSelect;
+		break;
+	case 0b11011000:
+	case 0b11011001:
+	case 0b11011010:
+	case 0b11011011:
+	case 0b11011100:
+	case 0b11011101:
+	case 0b11011110:
+	case 0b11011111: // 11011xxx
+		kind = DataProc3;
+		break;
+	default:
+		return UNKNOWN_INST;
+	}
+
+	// Bit 31 (sf) controls length of registers (0 → 32 bit, 1 → 64 bit)
+	// for _all_ register data processing instructions. Instructions that
+	// have no 32-bit variant still have the bit, but it's always set.
+	if ((top3 & 0b100) == 0)
+		inst.flags |= W32;
+
+	switch (kind) {
+	case Unknown:
+		return UNKNOWN_INST;
+
+	case DataProc2: {
+		switch ((binst >> 10) & 0b111111) {
+		case 0b000000:
+			inst.op = A64_SUBP;
+			if (top3 & 0b001)
+				inst.flags |= SET_FLAGS; // SUBPS
+			break;
+		case 0b000010: inst.op = A64_UDIV; break;
+		case 0b000011: inst.op = A64_SDIV; break;
+		case 0b001000: inst.op = A64_LSLV; break; // lowest two bits → enum Shift
+		case 0b001001: inst.op = A64_LSRV; break; // --
+		case 0b001010: inst.op = A64_ASRV; break; // --
+		case 0b001011: inst.op = A64_RORV; break; // --
+		case 0b010000: inst.op = A64_CRC32B; break; // lowest two bits → enum Size
+		case 0b010001: inst.op = A64_CRC32H; break;
+		case 0b010010: inst.op = A64_CRC32W; break;
+		case 0b010011: inst.op = A64_CRC32X; break;
+		case 0b010100: inst.op = A64_CRC32CB; break;
+		case 0b010101: inst.op = A64_CRC32CH; break;
+		case 0b010110: inst.op = A64_CRC32CW; break;
+		case 0b010111: inst.op = A64_CRC32CX; break;
+		}
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		break;
+	}
+	case DataProc1:
+		switch ((binst >> 10) & 0b1111111111) {
+		case 0b000: inst.op = A64_RBIT; break;
+		case 0b001: inst.op = A64_REV16; break;
+		case 0b010: inst.op = (inst.flags & W32) ? A64_REV : A64_REV32; break;
+		case 0b100: inst.op = A64_CLZ; break;
+		case 0b101: inst.op = A64_CLS; break;
+		}
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		break;
+
+	case LogicalShifted: {
+		bool negate = (binst >> 21) & 1;
+		switch (top3 & 0b011) {
+		case 0b00: inst.op = (negate) ? A64_BIC : A64_AND_SHIFTED; break;
+		case 0b01: inst.op = (negate) ? A64_ORN : A64_ORR_SHIFTED; break;
+		case 0b10: inst.op = (negate) ? A64_EON : A64_EOR_SHIFTED; break;
+		case 0b11:
+			inst.op = (negate) ? A64_BIC : A64_AND_SHIFTED;
+			inst.flags |= SET_FLAGS; // ANDS and BICS represented using SET_FLAGS bit
+			break;
+		}
+
+		u32 shift = (binst >> 22) & 0b11;
+		u32 imm6 = (binst >> 10) & 0b111111;
+		inst.imm2[SHIFT_TYPE] = shift;
+		inst.imm2[SHIFT_AMOUNT] = imm6;
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+
+		if (inst.op == A64_AND_SHIFTED && (inst.flags & SET_FLAGS) && inst.rd == ZERO_REG)
+			inst.op = A64_TST_SHIFTED;
+		else if (inst.op == A64_ORR_SHIFTED && shift == 0 && imm6 == 0 && inst.rn == ZERO_REG)
+			inst.op = A64_MOV_REG;
+		break;
+	}
+	case AddSubShifted:
+		if (top3 & 0b001)
+			inst.flags |= SET_FLAGS;
+
+		switch (top3 & 0b011) {
+		case 0b00:
+		case 0b01:
+			inst.op = A64_ADD_SHIFTED;
+			break;
+		case 0b10:
+		case 0b11:
+			inst.op = A64_SUB_SHIFTED;
+			break;
+		}
+
+		inst.imm2[SHIFT_TYPE] = (binst >> 22) & 0b11;
+		inst.imm2[SHIFT_AMOUNT] = (binst >> 10) & 0b111111;
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+
+		if (inst.rd == ZERO_REG && (inst.flags & SET_FLAGS)) {
+			switch (inst.op) {
+			case A64_ADD_SHIFTED: inst.op = A64_CMN_SHIFTED; break;
+			case A64_SUB_SHIFTED: inst.op = A64_CMP_SHIFTED; break;
+			default:
+				break; // impossible; shuts up warning
+			}
+		}
+		break;
+
+	case AddSubExtended: {
+		if (top3 & 0b001)
+			inst.flags |= SET_FLAGS;
+
+		switch (top3 & 0b011) {
+		case 0b00:
+		case 0b01:
+			inst.op = A64_ADD_EXT;
+			break;
+		case 0b10:
+		case 0b11:
+			inst.op = A64_SUB_EXT;
+			break;
+		}
+
+		inst.imm2[EXT_TYPE] = (binst >> 13) & 0b111; // three bits: sign(1):size(2)
+		inst.imm2[EXT_LSL] = (binst >> 10) & 0b111;  // optional LSL amount
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+
+		if (inst.rd == ZERO_REG && (inst.flags & SET_FLAGS)) {
+			switch (inst.op) {
+			case A64_ADD_EXT: inst.op = A64_CMN_EXT; break;
+			case A64_SUB_EXT: inst.op = A64_CMP_EXT; break;
+			default:
+				break; // impossible; shuts up warning
+			}
+		}
+		break;
+	}
+	case AddSubCarryAndFlagManipulation: {
+		if (top3 & 0b001)
+			inst.flags |= SET_FLAGS;
+
+		switch ((binst >> 9) & 0b111111) {
+		case 0b000000: {
+			bool sub = top3 & 0b010;
+			inst.op = (sub) ? A64_SBC : A64_ADC;
+			inst.rd = regRd(binst);
+			inst.rn = regRn(binst);
+			inst.rm = regRm(binst);
+			break;
+		}
+		case 0b000001:
+		case 0b100001: // x00001
+			inst.op = A64_RMIF;
+			inst.rn = regRn(binst);
+			inst.imm2[RMIF_MASK] = binst & 0b1111;
+			inst.imm2[RMIF_IMM6] = (binst >> 15) & 0b111111;
+			break;
+		case 0b000010:
+			inst.op = A64_SETF8;
+			inst.rn = regRn(binst);
+			break;
+		case 0b010010:
+			inst.op = A64_SETF16;
+			inst.rn = regRn(binst);
+			break;
+		default:
+			return UNKNOWN_INST;
+		}
+
+		break;
+	}
+	case CondCompare: {
+		bool positive = (top3 & 0b010) == 0;
+		bool immediate = (binst >> 11) & 1;
+		if (positive) {
+			inst.op = (immediate) ? A64_CCMP_IMM : A64_CCMP_REG;
+		} else {
+			inst.op = (immediate) ? A64_CCMN_IMM : A64_CCMN_REG;
+		}
+
+		inst.flags |= SET_FLAGS;
+		inst.flags = set_cond(inst.flags, (binst >> 12) & 0b1111);
+		inst.imm2[CCMP_NZCV] = binst & 0b1111;
+		inst.imm2[CCMP_IMM5] = (immediate) ? (binst >> 16) & 0b11111 : 0;
+		break;
+	}
+	case CondSelect: {
+		// Combine the op bit (30) and the op2 field (11-10) to fully
+		// determine the selection opcode.
+		u32 op = (((binst >> 30) & 1) << 1) | (binst >> 10) && 0b11;
+		switch (op) {
+		case 0b000: inst.op = A64_CSEL; break;
+		case 0b001: inst.op = A64_CSINC; break;
+		case 0b100: inst.op = A64_CSINV; break;
+		case 0b101: inst.op = A64_CSNEG; break;
+		default:
+			return UNKNOWN_INST;
+		}
+
+		inst.flags = set_cond(inst.flags, (binst >> 12) & 0b1111);
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+
+		if (inst.rm == ZERO_REG && inst.rn == ZERO_REG) {
+			switch (inst.op) {
+			case A64_CSINC: inst.op = A64_CSET; inst.flags = invert_cond(inst.flags); break;
+			case A64_CSINV: inst.op = A64_CSETM; inst.flags = invert_cond(inst.flags); break;
+			default:
+				break;
+			}
+		} else if (inst.rm == inst.rn && inst.op == A64_CSNEG) {
+			inst.op = A64_CNEG;
+			inst.flags = invert_cond(inst.flags);
+		}
+		break;
+	}
+	case DataProc3: {
+		bool sub = (binst >> 15) & 1;
+		switch ((binst >> 21) & 0b111) {
+		case 0b000: inst.op = (sub) ? A64_MADD : A64_MSUB; break;
+		case 0b001: inst.op = (sub) ? A64_SMADDL : A64_SMSUBL; break;
+		case 0b010: inst.op = A64_SMULH; break;
+		case 0b101: inst.op = (sub) ? A64_UMADDL : A64_UMSUBL; break;
+		case 0b110: inst.op = A64_UMULH; break;
+		default:
+			return UNKNOWN_INST;
+		}
+
+		// Only MADD und MSUB have 32-bit variants.
+		if ((top3 & 0b100) == 0 && inst.op != A64_MADD && inst.op != A64_MSUB)
+			return UNKNOWN_INST;
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		inst.ra = (binst >> 10) & 0b11111;
+
+		if (inst.ra == ZERO_REG) {
+			switch (inst.op) {
+			case A64_MADD:   inst.op =    A64_MUL; break;
+			case A64_MSUB:   inst.op =   A64_MNEG; break;
+			case A64_SMADDL: inst.op =  A64_SMULL; break;
+			case A64_SMSUBL: inst.op = A64_SMNEGL; break;
+			case A64_UMADDL: inst.op =  A64_UMULL; break;
+			case A64_UMSUBL: inst.op = A64_UMNEGL; break;
+
+			case A64_SMULH:
+			case A64_UMULH:
+			default:
+				break;
+			}
+		}
+
+		break;
+	}
+	}
+
+	return inst;
+}
+
 // decode decodes n binary instructions from the input buffer and
 // puts them in the output buffer, which must have space for n Insts.
 int decode(u32 *in, uint n, Inst *out) {
@@ -543,8 +1009,7 @@ int decode(u32 *in, uint n, Inst *out) {
 			break;
 		case 0b0101:
 		case 0b1101: // x101
-			printf("0x%04x: Register data processing not supported\n", 4*i); // XXX
-			out[i] = UNKNOWN_INST;
+			out[i] = data_proc_reg(binst);
 			break;
 		case 0b0111:
 		case 0b1111: // x111
@@ -561,7 +1026,7 @@ int decode(u32 *in, uint n, Inst *out) {
 
 // Buffers not in main because allocating hundreds of MB on the stack
 // leads to a segfault.
-#define NINST (28)
+#define NINST (29)
 u32 ibuf[NINST];
 Inst obuf[NINST];
 
@@ -604,6 +1069,8 @@ int main(int argc, char **argv) {
 		0068 lsl     x8, x24, #32
 		006c b       .LBB1_9
 
+	.test_add_ext:
+		0070 add     x0, x26, w13, sxth
 	*/
 	unsigned char sample[] = {
 		0x8b, 0x1e, 0x00, 0x12,
@@ -634,7 +1101,9 @@ int main(int argc, char **argv) {
 		0x0a, 0x1c, 0x48, 0xd3,
 		0xe9, 0x5e, 0x58, 0xd3,
 		0x08, 0x7f, 0x60, 0xd3,
-		0xe5, 0xff, 0xff, 0x17
+		0xe5, 0xff, 0xff, 0x17,
+
+		0x40, 0xa3, 0x2d, 0x8b,
 	};
 
 	// We just repeat the sample one instruction at a time until NINST is reached.
