@@ -7,11 +7,16 @@ typedef uint8_t   u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
+typedef int32_t  s32;
 typedef int64_t  s64;
 
+typedef enum Cond Cond;
+typedef enum ExtendType ExtendType;
 typedef enum Op Op;
-typedef u8 Reg;
+typedef enum Shift Shift;
+typedef enum Size Size;
 typedef struct Inst Inst;
+typedef u8 Reg;
 
 // Opcodes ordered and grouped according to the Top-level Encodings
 // of the A64 Instruction Set Architecture (ARMv8-A profile) document,
@@ -193,19 +198,71 @@ enum Op {
 	A64_UMULH
 };
 
+enum Shift {
+	SH_LSL = 0b00,
+	SH_LSR = 0b01,
+	SH_ASR = 0b10,
+	SH_ROR = 0b11, // only for RORV instruction; shifted add/sub does not support it
+	SH_RESERVED = SH_ROR
+};
+
+enum Size {
+	SZ_B = 0b00, // Byte     -  8 bit
+	SZ_H = 0b01, // Halfword - 16 bit
+	SZ_W = 0b10, // Word     - 32 bit
+	SZ_X = 0b11, // Extended - 64 bit
+};
+
+// ExtendType: signed(1):size(2)
+enum ExtendType {
+	UXTB = (0 << 2) | SZ_B,
+	UXTH = (0 << 2) | SZ_H,
+	UXTW = (0 << 2) | SZ_W,
+	UXTX = (0 << 2) | SZ_X,
+	SXTB = (1 << 2) | SZ_B,
+	SXTH = (1 << 2) | SZ_H,
+	SXTW = (1 << 2) | SZ_W,
+	SXTX = (1 << 2) | SZ_X,
+};
+
 // XXX keep it at 16 bytes if possible
 struct Inst {
 	Op  op;
 	u8 flags; // lower four bits: see enum flagmasks; upper four bit: see enum Cond
-	Reg rd;  // destination register - Rd
-	Reg rn;  // first (or only) operand - Rn, Rt
-	Reg rm;  // second operand - Rm
+	Reg rd;   // destination register - Rd
+	Reg rn;   // first (or only) operand - Rn, Rt
+	Reg rm;   // second operand - Rm
 	union {
-		u64 imm;     // primary immediate
-		s64 offset;  // alternative to imm for branches: PC-relative byte offset
+		u64 imm;     // single immediate
+		s64 offset;  // branches: PC-relative byte offset
 		Reg ra;      // third operand for 3-source data proc instrs (MADD, etc.)
-		u32 imm2[2]; // two immediates where necessary
 		char *error; // error string for op = A64_UNKNOWN, may be NULL
+
+		// Two shorter immediates.
+		struct {
+			u32 immr;
+			u32 imms;
+		}; // XXX just used by bitfield operations, right?
+		struct {
+			u32 nzcv;
+			u32 imm5;
+		} ccmp;
+		struct {
+			s32 offset; // 14-bit jump offset
+			u32 b5b40;  // b5:b40 field - bitmask to test against
+		} tbz;
+		struct {
+			u32 type;   // enum Shift (not used because sizeof(enum) is impl-defined)
+			u32 amount;
+		} shift;
+		struct {
+			u32 mask;
+			u32 ror; // rotate right amount - 0..63
+		} rmif;
+		struct {
+			u32 type; // enum ExtendType
+			u32 lsl; // left shift amount
+		} extend;
 	};
 };
 
@@ -220,26 +277,10 @@ static Inst errinst(char *err) {
 	return inst;
 }
 
-// The meaning of the Inst.imm2 field.
-enum imm2_indexes {
-	IMMR = 0,
-	CCMP_NZCV = 0,
-	SHIFT_TYPE = 0,
-	RMIF_MASK = 0,
-	EXT_TYPE = 0, // three bits: sign(1):size(2)
-	IMMS = 1,
-	CCMP_IMM5 = 1,
-	SHIFT_AMOUNT = 1,
-	RMIF_IMM6 = 1,
-	EXT_LSL = 1,  // left shift amount for extended add/sub
-};
-
 enum flagmasks {
 	W32 = 1 << 0,       // use the 32-bit W0...W31 facets?
 	SET_FLAGS = 1 << 1, // modify the NZCV flags? (S mnemonic suffix)
 };
-
-typedef enum Cond Cond;
 
 // The condition bits used by conditial branches, selects and compares, stored in the
 // upper four bit of the Inst.flags field. The first three bits determine the condition
@@ -280,24 +321,7 @@ static u8 invert_cond(u8 flags) {
 	return set_cond(flags, cond ^ 0b001); // invert LSB
 }
 
-typedef enum Shift Shift;
 
-enum Shift {
-	SH_LSL = 0b00,
-	SH_LSR = 0b01,
-	SH_ASR = 0b10,
-	SH_ROR = 0b11, // only for RORV instruction; shifted add/sub does not support it
-	SH_RESERVED = SH_ROR
-};
-
-typedef enum Size Size;
-
-enum Size {
-	SZ_B = 0b00, // Byte     -  8 bit
-	SZ_H = 0b01, // Halfword - 16 bit
-	SZ_W = 0b10, // Word     - 32 bit
-	SZ_X = 0b11, // Extended - 64 bit
-};
 
 // The destination register Rd, if present, occupies bits 0..4.
 static Reg regRd(u32 binst) {
@@ -475,8 +499,8 @@ static Inst data_proc_imm(u32 binst) {
 			}
 			if (imms < immr) {
 				inst.op = A64_SBFIZ; // SBFIZ Rd, Rn, #lsb, #width
-				inst.imm2[IMMR] = 0xDEAD;  // XXX immr = -lsb MOD 32/64 → lsb = ?
-				inst.imm2[IMMS] = imms + 1; // imms = width - 1 → width = imms + 1
+				inst.immr = 0xDEAD;  // XXX immr = -lsb MOD 32/64 → lsb = ?
+				inst.imms = imms + 1; // imms = width - 1 → width = imms + 1
 				goto regs;
 			}
 			if (immr == 0) {
@@ -487,8 +511,8 @@ static Inst data_proc_imm(u32 binst) {
 				}
 			}
 			inst.op = A64_SBFX; // SBFX Rd, Rn, #lsb, #width
-			inst.imm2[IMMR] = immr;            // immr = lsb
-			inst.imm2[IMMS] = imms - immr + 1; // imms = lsb + width - 1 → width = imms - lsb + 1;
+			inst.immr = immr;            // immr = lsb
+			inst.imms = imms - immr + 1; // imms = lsb + width - 1 → width = imms - lsb + 1;
 
 			break;
 			// There is no SBFM general case not handled by an alias
@@ -635,10 +659,10 @@ static Inst branches(u32 binst) {
 		bool zero = (binst & (1 << 24)) == 0;
 		inst.op = (zero) ? A64_TBZ : A64_TBNZ;
 
-		inst.imm2[0] = 4 * sext((binst >> 5) & 0b11111111111111, 14); // imm14
+		inst.tbz.offset = 4 * sext((binst >> 5) & 0b11111111111111, 14); // imm14
 		u32 b40 = (binst >> 19) & 0b11111;
 		u32 b5 = binst & (1<<31);
-		inst.imm2[1] = (b5 >> (31-5)) | b40; // b5:b40
+		inst.tbz.b5b40 = (b5 >> (31-5)) | b40; // b5:b40
 		inst.rn = binst & 0b11111;           // Rt; not modified → Inst.rn, not .rd
 		break;
 	}
@@ -781,8 +805,8 @@ static Inst data_proc_reg(u32 binst) {
 
 		u32 shift = (binst >> 22) & 0b11;
 		u32 imm6 = (binst >> 10) & 0b111111;
-		inst.imm2[SHIFT_TYPE] = shift;
-		inst.imm2[SHIFT_AMOUNT] = imm6;
+		inst.shift.type = shift;
+		inst.shift.amount = imm6;
 
 		inst.rd = regRd(binst);
 		inst.rn = regRn(binst);
@@ -809,8 +833,8 @@ static Inst data_proc_reg(u32 binst) {
 			break;
 		}
 
-		inst.imm2[SHIFT_TYPE] = (binst >> 22) & 0b11;
-		inst.imm2[SHIFT_AMOUNT] = (binst >> 10) & 0b111111;
+		inst.shift.type = (binst >> 22) & 0b11;
+		inst.shift.amount = (binst >> 10) & 0b111111;
 
 		inst.rd = regRd(binst);
 		inst.rn = regRn(binst);
@@ -841,8 +865,8 @@ static Inst data_proc_reg(u32 binst) {
 			break;
 		}
 
-		inst.imm2[EXT_TYPE] = (binst >> 13) & 0b111; // three bits: sign(1):size(2)
-		inst.imm2[EXT_LSL] = (binst >> 10) & 0b111;  // optional LSL amount
+		inst.extend.type = (binst >> 13) & 0b111; // three bits: sign(1):size(2)
+		inst.extend.lsl = (binst >> 10) & 0b111;  // optional LSL amount
 
 		inst.rd = regRd(binst);
 		inst.rn = regRn(binst);
@@ -875,8 +899,8 @@ static Inst data_proc_reg(u32 binst) {
 		case 0b100001: // x00001
 			inst.op = A64_RMIF;
 			inst.rn = regRn(binst);
-			inst.imm2[RMIF_MASK] = binst & 0b1111;
-			inst.imm2[RMIF_IMM6] = (binst >> 15) & 0b111111;
+			inst.rmif.mask = binst & 0b1111;
+			inst.rmif.ror = (binst >> 15) & 0b111111;
 			break;
 		case 0b000010:
 			inst.op = A64_SETF8;
@@ -903,8 +927,8 @@ static Inst data_proc_reg(u32 binst) {
 
 		inst.flags |= SET_FLAGS;
 		inst.flags = set_cond(inst.flags, (binst >> 12) & 0b1111);
-		inst.imm2[CCMP_NZCV] = binst & 0b1111;
-		inst.imm2[CCMP_IMM5] = (immediate) ? (binst >> 16) & 0b11111 : 0;
+		inst.ccmp.nzcv = binst & 0b1111;
+		inst.ccmp.imm5 = (immediate) ? (binst >> 16) & 0b11111 : 0;
 		break;
 	}
 	case CondSelect: {
@@ -1137,10 +1161,10 @@ int main(int argc, char **argv) {
 			}
 
 			// We do not disambiguate here -- all instructions are printed
-			// the same; for example, instructions with two immediates (using
-			// the imm2[] field) have the imm field printed too.
+			// the same; for example, instructions with two immediates have
+			// the imm field printed too.
 			printf("0x%04x: %d%c %c%d, %c%d, %c%d, imm=%lu, imm2=(%u,%u), offset=%4ld\n", 4*i, inst.op, flagsch,
-				regch, inst.rd, regch, inst.rn, regch, inst.rm, inst.imm, inst.imm2[0], inst.imm2[1], inst.offset);
+				regch, inst.rd, regch, inst.rn, regch, inst.rm, inst.imm, inst.immr, inst.imms, inst.offset);
 		}
 	}
 
