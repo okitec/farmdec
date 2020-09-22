@@ -600,8 +600,8 @@ static Inst branches(u32 binst) {
 		return UNKNOWN_INST;
 	}
 
-	// For branches, the actual byte offset is the immediate times 4.
-	// Hence the multiplications.
+	// Regarding "immX * 4": branch immediates are word offsets, but we want
+	// byte offsets, so shift twice to the left.
 
 	// XXX virtual address would help in pre-calculating absolute address
 	// XXX like fadec. We could do that in an after-pass to avoid an extra
@@ -613,7 +613,7 @@ static Inst branches(u32 binst) {
 
 	case CondBranch:
 		inst.flags = set_cond(inst.flags, binst & 0b1111);
-		inst.offset = 4 * sext((binst >> 5) & 0b1111111111111111111, 19); // imm19
+		inst.offset = sext(((binst >> 5) & 0b1111111111111111111) << 2, 19+2); // imm19 * 4
 		break;
 
 	case System:
@@ -634,7 +634,7 @@ static Inst branches(u32 binst) {
 	}
 	case UncondBranch:
 		inst.op = (binst & (1<<31)) ? A64_BL : A64_B; // MSB = 1 → BL
-		inst.offset = 4 * sext(binst & 0b11111111111111111111111111, 26); // imm26
+		inst.offset = sext((binst & 0b11111111111111111111111111) << 2, 26+2); // imm26 * 4
 		break;
 
 	case CmpAndBranch: {
@@ -644,7 +644,7 @@ static Inst branches(u32 binst) {
 		bool zero = (binst & (1 << 24)) == 0;
 		inst.op = (zero) ? A64_CBZ : A64_CBNZ;
 
-		inst.offset = 4 * sext((binst >> 5) & 0b1111111111111111111, 19); // imm19
+		inst.offset = 4 * sext(((binst >> 5) & 0b1111111111111111111) << 2, 19+2); // imm19 * 4
 		inst.rn = binst & 0b11111; // Rt; not modified → Inst.rn, not .rd
 		break;
 	}
@@ -655,11 +655,11 @@ static Inst branches(u32 binst) {
 		bool zero = (binst & (1 << 24)) == 0;
 		inst.op = (zero) ? A64_TBZ : A64_TBNZ;
 
-		inst.tbz.offset = 4 * sext((binst >> 5) & 0b11111111111111, 14); // imm14
+		inst.tbz.offset = sext(((binst >> 5) & 0b11111111111111) << 2, 14+2); // imm14 * 4
 		u32 b40 = (binst >> 19) & 0b11111;
 		u32 b5 = binst & (1<<31);
 		inst.tbz.b5b40 = (b5 >> (31-5)) | b40; // b5:b40
-		inst.rn = binst & 0b11111;           // Rt; not modified → Inst.rn, not .rd
+		inst.rn = binst & 0b11111;             // Rt; not modified → Inst.rn, not .rd
 		break;
 	}
 	}
