@@ -40,9 +40,7 @@ enum Op {
 	A64_ADR,     // ADR Xd, label  -- Xd ← PC + label
 	A64_ADRP,    // ADRP Xd, label -- Xd ← PC + (label * 4K)
 
-	// Add/subtract (immediate, with tags)
-	A64_ADDG,
-	A64_SUBG,
+	// Add/subtract (immediate, with tags) -- NOT IMPLEMENTED
 
 	// Add/subtract (immediate)
 	A64_ADD_IMM,
@@ -234,7 +232,7 @@ struct Inst {
 	Reg rm;   // second operand - Rm
 	union {
 		u64 imm;     // single immediate
-		s64 offset;  // branches: PC-relative byte offset
+		s64 offset;  // branches, ADR, ADRP: PC-relative byte offset
 		Reg ra;      // third operand for 3-source data proc instrs (MADD, etc.)
 		char *error; // error string for op = A64_UNKNOWN, may be NULL
 
@@ -418,24 +416,22 @@ static Inst data_proc_imm(u32 binst) {
 		else
 			inst.op = A64_ADRP;
 
-		inst.flags &= ~W32; // no 32-bit variant for these
+		inst.flags &= ~W32; // no 32-bit variant of these
 
-		u64 immhi = binst & (0b111111111111111111 << 5);
-		u64 immlo = top3 & 0b011;
-		inst.imm = (immhi >> (5-2)) | immlo; // pos(immhi) = 5; 2: len(immlo)
+		// First, just extract the immediate.
+		u32 immhi = binst & (0b111111111111111111 << 5);
+		u32 immlo = top3 & 0b011;
+		u32 uimm = (immhi >> (5-2)) | immlo; // pos(immhi) = 5; 2: len(immlo)
+
+		u64 scale = (inst.op == A64_ADRP) ? 4096 : 1; // ADRP: Page (4K) Address
+		s64 simm = sext(scale * uimm, 21);            // PC-relative → signed
+		inst.offset = simm;
 
 		inst.rd = regRd(binst);
 		break;
 	}
 	case AddSubTags:
-		if (top3 == 0b100)
-			inst.op = A64_ADDG;
-		else if (top3 == 0b110)
-			inst.op = A64_SUBG;
-		else
-			return UNKNOWN_INST;
-
-		return errinst("ADDG, SUBG not supported"); // XXX should they even? no other tag instrs are.
+		return errinst("ADDG, SUBG not supported");
 
 	case AddSub: {
 		bool is_add = (top3 & 0b010) == 0;
