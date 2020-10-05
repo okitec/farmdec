@@ -338,32 +338,54 @@ static u8 invert_cond(u8 flags) {
 	return set_cond(flags, cond ^ 0b001); // invert LSB
 }
 
+// Register 31's interpretation is up to the instruction. Many interpret it as the
+// zero register ZR/WZR. Reading to it yields a zero, writing discards the result.
+// Other instructions interpret it as the stack pointer SP.
+//
+// We split up this overloaded register: when we encounter R31 and interpret it as
+// the stack pointer, we assign a different number. This way, the user does not
+// need to know which instructions use the SP and which use the ZR.
+enum special_registers {
+	ZERO_REG = 31,
+	STACK_POINTER = 100 // arbitrary
+};
 
 
 // The destination register Rd, if present, occupies bits 0..4.
+// Register 31 is treated as the Zero/Discard register ZR/WZR.
 static Reg regRd(u32 binst) {
 	return binst & 0b11111;
 }
 
+// Register 31 is treated as the stack pointer SP.
+static Reg regRdSP(u32 binst) {
+	Reg rd = binst & 0b11111;
+	return (rd == 31) ? STACK_POINTER : rd;
+}
+
 // The first operand register Rn, if present, occupies bits 5..9.
+// Register 31 is treated as the Zero/Discard register ZR/WZR.
 static Reg regRn(u32 binst) {
 	return (binst >> 5) & 0b11111;
 }
 
+// Register 31 is treated as the stack pointer SP.
+static Reg regRnSP(u32 binst) {
+	Reg rn = (binst >> 5) & 0b11111;
+	return (rn == 31) ? STACK_POINTER : rn;
+}
+
 // The second operand register Rm, if present, occupies bits 16..20.
+// Register 31 is treated as the Zero/Discard register ZR/WZR.
 static Reg regRm(u32 binst) {
 	return (binst >> 16) & 0b11111;
 }
 
-enum {
-	// Register W31/X31 is a zero register for some instructions and the
-	// stack pointer for others.
-	ZERO_REG = 31,
-	STACK_POINTER = 31,
-	// XXX create a "virtual" register number for the zero reg. the lifter
-	// XXX should not need to care which instruction interprets 31 as ZERO_REG
-	// XXX or STACK_POINTER
-};
+// Register 31 is treated as the stack pointer SP.
+static Reg regRmSP(u32 binst) {
+	Reg rm = (binst >> 16) & 0b11111;
+	return (rm == 31) ? STACK_POINTER : rm;
+}
 
 // sext sign-extends the b-bits number in x to 64 bit. The upper (64-b) bits
 // must be zero. Seldom needed, but fiddly.
@@ -466,8 +488,8 @@ static Inst data_proc_imm(u32 binst) {
 		bool shift_by_12 = (binst & (1 << 22)) > 0;
 		inst.imm = (shift_by_12) ? unshifted_imm << 12 : unshifted_imm;
 
-		inst.rd = regRd(binst);
-		inst.rn = regRn(binst);
+		inst.rd = regRdSP(binst);
+		inst.rn = regRnSP(binst);
 
 		if (inst.op == A64_ADD_IMM && !shift_by_12 && unshifted_imm == 0 &&
 			((inst.rd == STACK_POINTER) || (inst.rn == STACK_POINTER))) {
@@ -493,7 +515,7 @@ static Inst data_proc_imm(u32 binst) {
 		u64 N = (inst.w32) ? 0 : binst & (1 << 22); // N is MSB of imm for 64-bit variants
 		inst.imm = N >> (22-6-6) | imms >> (10-6) | immr >> 16;
 
-		inst.rd = regRd(binst);
+		inst.rd = regRdSP(binst);
 		inst.rn = regRn(binst);
 		break;
 	}
@@ -815,7 +837,10 @@ static Inst data_proc_reg(u32 binst) {
 			inst.op = A64_SUBP;
 			if (top3 & 0b001)
 				inst.flags |= SET_FLAGS; // SUBPS
-			break;
+			inst.rd = regRd(binst);
+			inst.rn = regRnSP(binst);
+			inst.rm = regRmSP(binst);
+			return inst;
 		case 0b000010: inst.op = A64_UDIV; break;
 		case 0b000011: inst.op = A64_SDIV; break;
 		case 0b001000: inst.op = A64_LSLV; break; // lowest two bits → enum Shift
@@ -931,8 +956,9 @@ static Inst data_proc_reg(u32 binst) {
 		inst.extend.type = (binst >> 13) & 0b111; // three bits: sign(1):size(2)
 		inst.extend.lsl = (binst >> 10) & 0b111;  // optional LSL amount
 
-		inst.rd = regRd(binst);
-		inst.rn = regRn(binst);
+		// Unlike AddSubShifted, R31 is intepreted as the Stack Pointer.
+		inst.rd = regRdSP(binst);
+		inst.rn = regRnSP(binst);
 		inst.rm = regRm(binst);
 
 		if (inst.rd == ZERO_REG && (inst.flags & SET_FLAGS)) {
