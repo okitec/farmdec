@@ -22,14 +22,18 @@ typedef u8 Reg;
 // of the A64 Instruction Set Architecture (ARMv8-A profile) document,
 // pages 1406-1473.
 //
-// Unlike normal ARM assembly, instructions are not overloaded here.
-// Instead, there are markers like _IMM (immediate) and _SH (shifted
-// register) where disambiguation is needed. Aliases are listed after
-// the base instruction.
+// Immediate and register variants generally have different opcodes
+// (e.g. A64_ADD_IMM, A64_ADD_SHIFTED, A64_ADD_EXT), but the marker
+// only appears where disambiguation is needed (e.g. ADR is not called
+// ADR_IMM since there is no register variant). Aliases have an opcode
+// of their own.
 //
-// However, whether the instruction sets flags or uses 32-bit registers
-// is encoded in fields of Inst, not in the opcode, so ADDS is represented
-// by A64_ADD_*.
+// Where possible, variants of instructions with regular structure
+// are encoded as one instruction. For example, conditional branches
+// like B.EQ, B.PL and so on are encoded as A64_BCOND with the
+// condition encoded in the Inst.flags field. The various addressing
+// modes of loads and stores are encoded similarly. See the Inst
+// structure for more detail.
 enum Op {
 	A64_UNKNOWN, // an invalid (Inst.error != NULL) or (to us) unknown instruction
 	A64_UDF,     // throws undefined exception
@@ -40,19 +44,28 @@ enum Op {
 	A64_ADR,     // ADR Xd, label  -- Xd ← PC + label
 	A64_ADRP,    // ADRP Xd, label -- Xd ← PC + (label * 4K)
 
-	// Add/subtract (immediate, with tags) -- NOT IMPLEMENTED
+	// Add/subtract (immediate, with tags) -- OMITTED
 
 	// Add/subtract (immediate)
 	A64_ADD_IMM,
+	A64_MOV_SP, // MOV from/to SP -- ADD (imm) alias (predicate: shift == 0 && imm12 == 0 && (Rd == SP || Rn == SP))
 	A64_SUB_IMM,
 
 	// Logical (immediate)
 	A64_AND_IMM,
 	A64_ORR_IMM,
 	A64_EOR_IMM,
-	A64_TST_IMM, // TST Rn -- ANDS alias (Rd := RZR, predicate Rd == ZR && set_flags)
+	A64_TST_IMM, // TST Rn -- ANDS alias (Rd := RZR, predicate: Rd == ZR && set_flags)
 
-	// XXX imm. moves
+	// Move wide (immediate)
+	A64_MOVN,
+	A64_MOVZ,
+	A64_MOVK,
+
+	// Synthetic instruction comprising MOV (bitmask immediate), MOV (inverted wide immediate)
+	// and MOV (wide immediate), which are themselves aliases of ORR_IMM, MOVN and MOVZ respectively.
+	// For lifting, we do not care how the immediate is encoded, only that it is an immediate move.
+	A64_MOV_IMM,
 
 	// Bitfield
 	A64_SBFM,
@@ -80,7 +93,7 @@ enum Op {
 
 	/*** Branches, Exception Generating and System Instructions ***/
 
-	A64_BCOND, // XXX idk, how to represent conds? all as different opcodes?
+	A64_BCOND,
 
 	// XXX system instructions
 
@@ -135,6 +148,7 @@ enum Op {
 	A64_ORR_SHIFTED,
 	A64_MOV_REG,     // ORR alias (predicate: shift == 0 && imm6 == 0 && Rn == ZR)
 	A64_ORN,
+	A64_MVN,         // ORN alias (Rn := ZR, predicate: Rn == ZR)
 	A64_EOR_SHIFTED,
 	A64_EON,
 
@@ -142,18 +156,20 @@ enum Op {
 	A64_ADD_SHIFTED,
 	A64_CMN_SHIFTED, // ADDS alias (Rd := ZR, predicate: Rd == ZR && set_flags)
 	A64_SUB_SHIFTED,
-	A64_CMP_SHIFTED, // SUBS alias (Rd := ZR, predicate: Rd == ZR, set_flags)
+	A64_NEG,         // SUB alias (Rn := ZR, predicate: Rn == ZR)
+	A64_CMP_SHIFTED, // SUBS alias (Rd := ZR, predicate: Rd == ZR && set_flags)
 
 	// Add/subtract (extended register)
 	// Register 31 is interpreted as the stack pointer (SP/WSP).
 	A64_ADD_EXT,
 	A64_CMN_EXT, // ADDS alias (Rd := ZR, predicate: Rd == ZR && set_flags)
 	A64_SUB_EXT,
-	A64_CMP_EXT, // SUBS alias (Rd := ZR, predicate: Rd == ZR, set_flags)
+	A64_CMP_EXT, // SUBS alias (Rd := ZR, predicate: Rd == ZR && set_flags)
 
 	// Add/subtract (with carry)
 	A64_ADC,
 	A64_SBC,
+	A64_NGC, // SBC alias (Rd := ZR, predicate: Rd == RR)
 
 	// Rotate right into flags
 	A64_RMIF,
@@ -236,7 +252,10 @@ struct Inst {
 		Reg ra;      // third operand for 3-source data proc instrs (MADD, etc.)
 		char *error; // error string for op = A64_UNKNOWN, may be NULL
 
-		// Two shorter immediates.
+		struct {
+			u32 imm16;
+			u32 lsl;   // left shift amount (0, 16, 32, 48)
+		} mov_wide;
 		struct {
 			u32 immr;
 			u32 imms;
@@ -255,11 +274,11 @@ struct Inst {
 		} shift;
 		struct {
 			u32 mask;
-			u32 ror; // rotate right amount - 0..63
+			u32 ror;  // rotate right amount - 0..63
 		} rmif;
 		struct {
 			u32 type; // enum ExtendType
-			u32 lsl; // left shift amount
+			u32 lsl;  // left shift amount
 		} extend;
 	};
 };
@@ -339,7 +358,11 @@ static Reg regRm(u32 binst) {
 enum {
 	// Register W31/X31 is a zero register for some instructions and the
 	// stack pointer for others.
-	ZERO_REG = 31
+	ZERO_REG = 31,
+	STACK_POINTER = 31,
+	// XXX create a "virtual" register number for the zero reg. the lifter
+	// XXX should not need to care which instruction interprets 31 as ZERO_REG
+	// XXX or STACK_POINTER
 };
 
 // sext sign-extends the b-bits number in x to 64 bit. The upper (64-b) bits
@@ -445,6 +468,11 @@ static Inst data_proc_imm(u32 binst) {
 
 		inst.rd = regRd(binst);
 		inst.rn = regRn(binst);
+
+		if (inst.op == A64_ADD_IMM && !shift_by_12 && unshifted_imm == 0 &&
+			((inst.rd == STACK_POINTER) || (inst.rn == STACK_POINTER))) {
+			inst.op = A64_MOV_SP;
+		}
 		break;
 	}
 	case Logic: {
@@ -470,7 +498,42 @@ static Inst data_proc_imm(u32 binst) {
 		break;
 	}
 	case Move: {
-		return errinst("Move (imm) not supported"); // XXX
+		switch (top3 & 0b011) { // opc
+		case 0b00: inst.op = A64_MOVN; break;
+		case 0b01: return UNKNOWN_INST;
+		case 0b10: inst.op = A64_MOVZ; break;
+		case 0b11: inst.op = A64_MOVK; break;
+		}
+
+		u8 hw = (binst >> 21) & 0b11;
+		u64 imm16 = (binst >> 5) & 0xFFFF;
+		inst.mov_wide.imm16 = imm16;
+		inst.mov_wide.lsl = 16 * hw;
+
+		inst.rd = regRd(binst);
+
+		// Unshifted or nonzero immediate... there might be a MOV alias.
+		if (imm16 != 0 || hw == 0) {
+			switch (inst.op) {
+			case A64_MOVN:
+				if ((inst.flags | W32) && imm16 == 0xFFFF) {
+					break; // for 32-bits variant, imm16 may not be all-ones
+				}
+
+				inst.op = A64_MOV_IMM;
+				inst.imm = ~ (imm16 << inst.mov_wide.lsl);
+				break;
+			case A64_MOVZ:
+				inst.op = A64_MOV_IMM;
+				inst.imm = imm16 << inst.mov_wide.lsl;
+				break;
+			default:
+				// Shut up impossible unhandled enum value warning.
+				return errinst("data_proc_imm/Move: cannot happen");
+			}
+		}
+
+		break;
 	}
 	case Bitfield: {
 		switch (top3 & 0b011) { // base instructions at this point
@@ -812,6 +875,8 @@ static Inst data_proc_reg(u32 binst) {
 			inst.op = A64_TST_SHIFTED;
 		else if (inst.op == A64_ORR_SHIFTED && shift == 0 && imm6 == 0 && inst.rn == ZERO_REG)
 			inst.op = A64_MOV_REG;
+		else if (inst.op == A64_ORN && inst.rn == ZERO_REG)
+			inst.op = A64_MVN;
 		break;
 	}
 	case AddSubShifted:
@@ -843,6 +908,8 @@ static Inst data_proc_reg(u32 binst) {
 			default:
 				break; // impossible; shuts up warning
 			}
+		} else if (inst.op == A64_SUB_SHIFTED && inst.rn == ZERO_REG) {
+			inst.op = A64_NEG;
 		}
 		break;
 
@@ -889,6 +956,9 @@ static Inst data_proc_reg(u32 binst) {
 			inst.rd = regRd(binst);
 			inst.rn = regRn(binst);
 			inst.rm = regRm(binst);
+			if (inst.op == A64_SBC && inst.rn == ZERO_REG) {
+				inst.op = A64_NGC;
+			}
 			break;
 		}
 		case 0b000001:
