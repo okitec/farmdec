@@ -189,6 +189,7 @@ enum Op {
 	// Conditional select
 	A64_CSEL,
 	A64_CSINC,
+	A64_CINC,  // CSINC alias (cond := invert(cond), predicate: Rm == Rn != ZR)
 	A64_CSET,  // CSINC alias (cond := invert(cond), predicate: Rm == Rn == ZR)
 	A64_CSINV,
 	A64_CSETM, // CSINV alias (cond := invert(cond), predicate: Rm == Rn == ZR)
@@ -328,9 +329,9 @@ static Cond get_cond(u8 flags) {
 }
 
 static u8 set_cond(u8 flags, Cond cond) {
-	flags &= 0x0F; // clear cond bits first
-	flags |= cond << 4;
-	return flags;
+	cond &= 0xF;
+	flags &= 0x0F;
+	return (cond << 4) | flags;
 }
 
 static u8 invert_cond(u8 flags) {
@@ -563,7 +564,7 @@ static Inst data_proc_imm(u32 binst) {
 		case 0b01: inst.op = A64_BFM;  break;
 		case 0b10: inst.op = A64_UBFM; break;
 		default:
-			return errinst("data_proc_imm/Bitfield: neither SBFM, BFM OR UBFM");
+			return errinst("data_proc_imm/Bitfield: neither SBFM, BFM or UBFM");
 		}
 
 		u64 immr = (binst >> 16) & 0b111111;
@@ -687,10 +688,6 @@ static Inst branches(u32 binst) {
 
 	// Regarding "immX * 4": branch immediates are word offsets, but we want
 	// byte offsets, so shift twice to the left.
-
-	// XXX virtual address would help in pre-calculating absolute address
-	// XXX like fadec. We could do that in an after-pass to avoid an extra
-	// XXX argument for every function.
 
 	switch (kind) {
 	case Unknown:
@@ -1026,7 +1023,7 @@ static Inst data_proc_reg(u32 binst) {
 	case CondSelect: {
 		// Combine the op bit (30) and the op2 field (11-10) to fully
 		// determine the selection opcode.
-		u32 op = (((binst >> 30) & 1) << 1) | (binst >> 10) && 0b11;
+		u32 op = (((binst >> 30) & 1) << 1) | ((binst >> 10) & 0b11);
 		switch (op) {
 		case 0b000: inst.op = A64_CSEL; break;
 		case 0b001: inst.op = A64_CSINC; break;
@@ -1050,6 +1047,9 @@ static Inst data_proc_reg(u32 binst) {
 			}
 		} else if (inst.rm == inst.rn && inst.op == A64_CSNEG) {
 			inst.op = A64_CNEG;
+			inst.flags = invert_cond(inst.flags);
+		} else if (inst.rm == inst.rn && inst.op == A64_CSINC) {
+			inst.op = A64_CINC;
 			inst.flags = invert_cond(inst.flags);
 		}
 		break;
