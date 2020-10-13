@@ -694,6 +694,7 @@ static Inst branches(u32 binst) {
 		return UNKNOWN_INST;
 
 	case CondBranch:
+		inst.op = A64_BCOND;
 		inst.flags = set_cond(inst.flags, binst & 0b1111);
 		inst.offset = sext(((binst >> 5) & 0b1111111111111111111) << 2, 19+2); // imm19 * 4
 		break;
@@ -1143,7 +1144,7 @@ int decode(u32 *in, uint n, Inst *out) {
 
 // Buffers not in main because allocating hundreds of MB on the stack
 // leads to a segfault.
-#define NINST (29)
+#define NINST (31)
 u32 ibuf[NINST];
 Inst obuf[NINST];
 
@@ -1188,6 +1189,9 @@ int main(int argc, char **argv) {
 
 	.test_add_ext:
 		0070 add     x0, x26, w13, sxth
+	.test_cmp_branch:
+		0074 cmp     w8, #16, lsl #12
+		0078 b.ge    .LBB0_6
 	*/
 	unsigned char sample[] = {
 		0x8b, 0x1e, 0x00, 0x12,
@@ -1221,6 +1225,8 @@ int main(int argc, char **argv) {
 		0xe5, 0xff, 0xff, 0x17,
 
 		0x40, 0xa3, 0x2d, 0x8b,
+		0x1f, 0x41, 0x40, 0x71,
+		0x6a, 0x02, 0x00, 0x54,
 	};
 
 	// We just repeat the sample one instruction at a time until NINST is reached.
