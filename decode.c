@@ -7,14 +7,18 @@ typedef uint8_t   u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
+typedef int16_t  s16;
 typedef int32_t  s32;
 typedef int64_t  s64;
 
+typedef enum AddrMode AddrMode;
 typedef enum Cond Cond;
 typedef enum ExtendType ExtendType;
+typedef enum FPSize FPSize;
 typedef enum Op Op;
 typedef enum Shift Shift;
 typedef enum Size Size;
+typedef enum VectorArrangement VectorArrangement;
 typedef struct Inst Inst;
 typedef u8 Reg;
 
@@ -210,7 +214,103 @@ enum Op {
 	A64_UMULL,  // UMADDL alias (^---- see above)
 	A64_UMSUBL,
 	A64_UMNEGL, // UMSUBL alias (^---- see above)
-	A64_UMULH
+	A64_UMULH,
+
+	/*** Loads and Stores ***/
+
+	// There are not that many opcodes because access size, sign-extension
+	// and addressing mode (post-indexed, register offset, immediate) are
+	// encoded in the Inst, to leverage the regular structure and cut down
+	// on opcodes (and by extension, duplicative switch-cases for the user
+	// of this decoder).
+
+	// Advanced SIMD load/store multiple structures
+	// Advanced SIMD load/store multiple structures (post-indexed)
+	A64_LD1_MULT,
+	A64_ST1_MULT,
+	A64_LD2_MULT,
+	A64_ST2_MULT,
+	A64_LD3_MULT,
+	A64_ST3_MULT,
+	A64_LD4_MULT,
+	A64_ST4_MULT,
+
+	// Advanced SIMD load/store single structure
+	// Advanced SIMD load/store single structure (post-indexed)
+	A64_LD1_SINGLE,
+	A64_ST1_SINGLE,
+	A64_LD2_SINGLE,
+	A64_ST2_SINGLE,
+	A64_LD3_SINGLE,
+	A64_ST3_SINGLE,
+	A64_LD4_SINGLE,
+	A64_ST4_SINGLE,
+	A64_LD1R,
+	A64_LD2R,
+	A64_LD3R,
+	A64_LD4R,
+
+	// Load/store exclusive
+	A64_LDXR,  // includes Load-acquire variants
+	A64_STXR,  // includes Store-acquire variants (STLXR)
+	A64_LDXP,  // ------
+	A64_STXP,  // ------
+	A64_LDAPR, // Load-AcquirePC Register (actually in Atomic group)
+
+	// Load/store no-allocate pair (offset)
+	A64_LDNP,
+	A64_STNP,
+	A64_LDNP_FP,
+	A64_STNP_FP,
+
+	// Load/store register pair (post-indexed)
+	// Load/store register pair (offset)
+	// Load/store register pair (pre-indexed)
+	A64_LDP,
+	A64_STP,
+	A64_LDP_FP,
+	A64_STP_FP,
+
+	// Load/store register (unscaled immediate)
+	A64_LDUR,
+	A64_STUR,
+	A64_LDUR_FP,
+	A64_STUR_FP,
+
+	// Load/store register (unprivileged): unsupported system instructions
+
+	// Load register (literal)
+	// Load-acquire/store-release register
+	// Load-LOAcquire/Store-LORelease register
+	// Load/store register (immediate post-indexed)
+	// Load/store register (immediate pre-indexed)
+	// Load/store register (register offset)
+	// Load/store register (unsigned immediate)
+	A64_LDR,
+	A64_STR,
+	A64_LDR_FP,
+	A64_STR_FP,
+
+	// Atomic memory operations
+	//
+	// Whether the instruction has load-acquire (e.g. LDADDA*), load-acquire/
+	// store-release (e.g. LDADDAL*) or store-release (e.g. STADDL) semantics
+	// is stored in ldst_order.load and .store.
+	//
+	// There are no ST* aliases; the only difference to the LD* instructions
+	// is that the original value of the memory cell is discarded by writing
+	// to the zero register.
+	A64_LDADD,
+	A64_LDCLR,
+	A64_LDEOR,
+	A64_LDSET,
+	A64_LDSMAX, // Signed/Unsigned (SMAX, UMAX) → flags, not opcode ? XXX
+	A64_LDSMIN,
+	A64_LDUMAX,
+	A64_LDUMIN,
+	A64_SWP,
+	A64_CAS,   // Compare and Swap (actually from Exclusive group)
+	A64_CASP,  // Compare and Swap Pair of (double)words (actually from Exclusive group)
 };
 
 enum Shift {
@@ -221,11 +321,41 @@ enum Shift {
 	SH_RESERVED = SH_ROR
 };
 
+// Size, encoded in two bits.
 enum Size {
 	SZ_B = 0b00, // Byte     -  8 bit
 	SZ_H = 0b01, // Halfword - 16 bit
 	SZ_W = 0b10, // Word     - 32 bit
 	SZ_X = 0b11, // Extended - 64 bit
+};
+
+// Floating-point size, encoded in three bits. Mostly synonymous to Size, but
+// with the 128-bit quadruple precision.
+enum FPSize {
+	FSZ_B = SZ_B, // Byte   -   8 bits
+	FSZ_H = SZ_H, // Half   -  16 bits
+	FSZ_S = SZ_W, // Single -  32 bits
+	FSZ_D = SZ_X, // Double -  64 bits
+
+	// "Virtual" encoding, never used in the actual instructions.
+	// There, Quad precision is encoded in various incoherent ways.
+	FSZ_Q = 0b111 // Quad   - 128 bits
+};
+
+// The three-bit Vector Arrangement specifier determines the structure of the
+// vectors used by a SIMD instruction, where it is encoded in size(2):Q(1).
+//
+// The vector registers V0...V31 are 128 bit long, but some arrangements use
+// only the bottom 64 bits.
+enum VectorArrangement {
+	VA_8B  = (FSZ_B << 1) | 0, //  64 bit
+	VA_16B = (FSZ_B << 1) | 1, // 128 bit
+	VA_4H  = (FSZ_H << 1) | 0, //  64 bit
+	VA_8H  = (FSZ_H << 1) | 1, // 128 bit
+	VA_2S  = (FSZ_S << 1) | 0, //  64 bit
+	VA_4S  = (FSZ_S << 1) | 1, // 128 bit
+	VA_1D  = (FSZ_D << 1) | 0, //  64 bit
+	VA_2D  = (FSZ_D << 1) | 1, // 128 bit
 };
 
 // ExtendType: signed(1):size(2)
@@ -243,10 +373,37 @@ enum ExtendType {
 // XXX keep it at 16 bytes if possible
 struct Inst {
 	Op  op;
-	u8 flags; // lower four bits: see enum flagmasks; upper four bit: see enum Cond
-	Reg rd;   // destination register - Rd
-	Reg rn;   // first (or only) operand - Rn, Rt
-	Reg rm;   // second operand - Rm
+
+	// Overloaded flags bitfield. The two lowest bits W32 and SET_FLAGS are never overloaded.
+	//
+	//              7   6   5   4   3   2   1   0
+	// Default:     - | - | - | - | - | - | S | W32
+	// Conditional: -----cond-----| - | - | S | W32  (see enum Cond)
+	// Load/Store:  ---mode---|----ext----|N/A| W32  (see enum AddrMode, enum ExtendType)
+	//     The load/store ext field stores the access size and and whether to do sign
+	//     extension or zero extension. Hence it is identical to an ExtendType.
+	// L/S Float:   ---mode---|----size---|N/A| N/A  (see enum FPSize)
+	//     The SIMD+FP variants of the usual LDR, STR, ...
+	// LDx/STx:     ---mode---|----vec----|N/A| N/A  (see enum VectorArrangement)
+	//     LD1..4, ST1..4, etc., need the vector arrangement, like many SIMD operations.
+	u8 flags;
+
+	union {
+		struct {
+			Reg rd;   // destination register - Rd
+			Reg rn;   // first (or only) operand, read-only - Rn, Rt (CBZ)
+			Reg rm;   // second operand, read-only - Rm
+		};
+		struct {
+			Reg rt;  // destination of load, source of store
+			Reg rn;  // base addressing register (Xn)
+			union {
+				Reg rt2; // second destination/source register for LDP, STP and variants (e.g. LDXP)
+				Reg rm;  // index register for AM_OFF_REG, AM_OFF_EXT
+				Reg rs;  // source register for atomic operations
+			};
+		} ldst;
+	};
 	union {
 		u64 imm;     // single immediate
 		s64 offset;  // branches, ADR, ADRP: PC-relative byte offset
@@ -267,7 +424,7 @@ struct Inst {
 		} ccmp;
 		struct {
 			s32 offset; // 14-bit jump offset
-			u32 b5b40;  // b5:b40 field - bitmask to test against
+			u32 b5b40;  // b5:b40 field - bit number to be tested
 		} tbz;
 		struct {
 			u32 type;   // enum Shift (not used because sizeof(enum) is impl-defined)
@@ -281,6 +438,19 @@ struct Inst {
 			u32 type; // enum ExtendType
 			u32 lsl;  // left shift amount
 		} extend;
+		struct {
+			// Atomics can have different ordering for the load and the store, so
+			// we need to have two variables.
+			u16 load;  // enum MemOrdering for Load -- None, Acquire, LOAcquire, AcquirePC
+			u16 store; // --------------- for Store -- None, Release, LORelease
+
+			Reg rs;    // status register for exclusive store pair (STXP, STLXP)
+		} ldst_order; // atomics and load/stores from Exclusive group
+		struct {
+			u32 nreg;   // consecutive vector registers to load/store
+			u16 index;  // for single-struct variants: index of vector lane to load/store
+			s16 offset; // offset to use if AM_POST and offset register Rm == ZERO_REG
+		} simd_ldst; // LD1..4, ST1..4
 	};
 };
 
@@ -338,6 +508,59 @@ static u8 invert_cond(u8 flags) {
 	Cond cond = get_cond(flags);
 	return set_cond(flags, cond ^ 0b001); // invert LSB
 }
+
+// Addressing modes, stored in the top three bits of the flags field
+// (where the condition is stored for conditional instructions). See
+// page 187, section C1.3.3 of the 2020 ARM ARM for ARMv8.
+//
+// The base register is stored in the Inst.ldst.rn field.
+//
+// The LSL amount for the REG and EXT depends on the access size
+// (#4 for 128 bits (SIMD), #3 for 64 bits, #2 for 32 bits, #1 for
+// 16 bits, #0 for 8 bits) and is used for array indexing:
+//
+//     u64 a[128];
+//     u64 x0 = a[i]; → ldr x0, [a, i, LSL #3]
+//
+enum AddrMode {
+	AM_SIMPLE,  // [base] -- used by atomics, exclusive, ordered load/stores → check Inst.ldst_order
+	AM_OFF_IMM, // [base, #imm]
+	AM_OFF_REG, // [base, Xm, {LSL #imm}] (#imm either #log2(size) or #0)
+	AM_OFF_EXT, // [base, Wm, {S|U}XTW {#imm}] (#imm either #log2(size) or #0)
+	AM_PRE,     // [base, #imm]!
+	AM_POST,    // [base],#imm  (for LDx, STx also register: [base],Xm)
+	AM_LITERAL  // label
+};
+
+// Addressing mode, for Loads and Stores.
+static AddrMode get_addrmode(u8 flags) {
+	return (AddrMode)((flags >> 5) & 0b111);
+}
+
+static u8 set_addrmode(u8 flags, AddrMode mode) {
+	return ((mode&0b111) << 5) | (flags&0b11111);
+}
+
+// How much memory to load/store (access size) and whether to sign- or
+// zero-extend the value.
+static ExtendType get_mem_extend(u8 flags) {
+	return (ExtendType)((flags >> 2) & 0b111);
+}
+
+static u8 set_mem_extend(u8 flags, ExtendType memext) {
+	return ((memext&0b111) << 2) | (flags&0b11100011);
+}
+
+// Memory ordering semantics for Atomic instructions and the Load/Stores in the
+// Exclusive group.
+enum MemOrdering {
+	MO_NONE,
+	MO_ACQUIRE,    // Load-Acquire -- sequentially consistent Acquire
+	MO_LO_ACQUIRE, // Load-LOAcquire -- Acquire in Limited Ordering Region (LORegion)
+	MO_ACQUIRE_PC, // Load-AcquirePC -- weaker processor consistent (PC) Acquire
+	MO_RELEASE,    // Store-Release
+	MO_LO_RELEASE, // Store-LORelease -- Release in LORegion
+};
 
 // Register 31's interpretation is up to the instruction. Many interpret it as the
 // zero register ZR/WZR. Reading to it yields a zero, writing discards the result.
