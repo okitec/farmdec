@@ -1376,15 +1376,14 @@ enum {
 // main: read instructions as list of hexadecimal numbers, decode, print results.
 int main(int argc, char **argv) {
 	size_t capacity = 1;
-	uint ninst = 0;
+	u64 ninst = 0;
 	u32 *ibuf = calloc(capacity, sizeof(u32)); // dynamically resized
 	Inst *obuf = NULL;
 
 	char line[16]; // really, eight digits and some slack
-	ssize_t n = 0;
 	while (fgets(line, sizeof(line), stdin)) {
 		ninst++;
-		if (ninst < capacity) {
+		if (ninst >= capacity) {
 			capacity *= 2;
 			ibuf = realloc(ibuf, capacity * sizeof(u32));
 			if (ibuf == NULL) {
@@ -1410,7 +1409,7 @@ int main(int argc, char **argv) {
 	double ibufM = ((double)ninst*sizeof(u32)) / (1024.0 * 1024.0);
 	double obufM = ((double)ninst*sizeof(Inst)) / (1024.0 * 1024.0);
 	double totalM = ibufM + obufM;
-	printf("#inst:     %7d\nibuf size: %6.1fM\nobuf size: %6.1fM\ntotal:     %6.1fM\n",
+	printf("#inst:     %7ld\nibuf size: %6.1fM\nobuf size: %6.1fM\ntotal:     %6.1fM\n",
 		ninst, ibufM, obufM, totalM);
 
 	decode(ibuf, ninst, obuf);
