@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h> // for allocation in main
 
 typedef unsigned int uint;
 typedef uint8_t   u8;
@@ -1365,128 +1366,82 @@ int decode(u32 *in, uint n, Inst *out) {
 	return i;
 }
 
-// Buffers not in main because allocating hundreds of MB on the stack
-// leads to a segfault.
-#define NINST (31)
-u32 ibuf[NINST];
-Inst obuf[NINST];
+enum {
+	MAX_OBUF_SIZE = 1 * 1024 * 1024 * 1024 // 1 GB
+};
 
+// char *mnemonics[], generated using mnemonics.awk.
+#include "mnemonics.h"
+
+// main: read instructions as list of hexadecimal numbers, decode, print results.
 int main(int argc, char **argv) {
-	double ibufM = ((double)sizeof(ibuf)) / (1024.0 * 1024.0);
-	double obufM = ((double)sizeof(obuf)) / (1024.0 * 1024.0);
-	double totalM = ibufM + obufM;
-	printf("#inst:     %6dM\nibuf size: %6.1fM\nobuf size: %6.1fM\ntotal:     %6.1fM\n",
-		NINST / (1024 * 1024), ibufM, obufM, totalM);
+	size_t capacity = 1;
+	uint ninst = 0;
+	u32 *ibuf = calloc(capacity, sizeof(u32)); // dynamically resized
+	Inst *obuf = NULL;
 
-	/*
-	.LBB1_9:
-		0000 and     w11, w20, #0xff
-		0004 orr     x8, x8, x22
-		0008 mov     x1, x19
-		000c ldp     x20, x19, [sp, #48]
-		0010 ldp     x22, x21, [sp, #32]
-		0014 ldp     x24, x23, [sp, #16]
-		0018 orr     x8, x8, x9
-		001c orr     x8, x8, x10
-		0020 orr     x0, x8, x11, lsl #48
-		0024 ldp     x29, x30, [sp], #64
-		0028 ret
-	.LBB1_10:
-		002c tst     w21, #0x40000000
-		0030 mov     w8, #6
-		0034 ubfx    w10, w21, #10, #12
-		0038 mvn     w9, w21
-		003c cinc    x22, x8, ne
-		0040 lsl     x8, x10, #12
-		0044 tst     w21, #0x400000
-		0048 mov     w0, w21
-		004c ubfx    w23, w21, #29, #1
-		0050 lsr     w24, w9, #31
-		0054 csel    x19, x10, x8, eq
-		0058 mov     w20, w0
-		005c mov     w0, w21
-		0060 lsl     x10, x0, #56
-		0064 lsl     x9, x23, #40
-		0068 lsl     x8, x24, #32
-		006c b       .LBB1_9
-
-	.test_add_ext:
-		0070 add     x0, x26, w13, sxth
-	.test_cmp_branch:
-		0074 cmp     w8, #16, lsl #12
-		0078 b.ge    .LBB0_6
-	*/
-	unsigned char sample[] = {
-		0x8b, 0x1e, 0x00, 0x12,
-		0x08, 0x01, 0x16, 0xaa,
-		0xe1, 0x03, 0x13, 0xaa,
-		0xf4, 0x4f, 0x43, 0xa9,
-		0xf6, 0x57, 0x42, 0xa9,
-		0xf8, 0x5f, 0x41, 0xa9,
-		0x08, 0x01, 0x09, 0xaa,
-		0x08, 0x01, 0x0a, 0xaa,
-		0x00, 0xc1, 0x0b, 0xaa,
-		0xfd, 0x7b, 0xc4, 0xa8,
-		0xc0, 0x03, 0x5f, 0xd6,
-
-		0xbf, 0x02, 0x02, 0x72,
-		0xc8, 0x00, 0x80, 0x52,
-		0xaa, 0x56, 0x0a, 0x53,
-		0xe9, 0x03, 0x35, 0x2a,
-		0x16, 0x05, 0x88, 0x9a,
-		0x48, 0xcd, 0x74, 0xd3,
-		0xbf, 0x02, 0x0a, 0x72,
-		0xe0, 0x03, 0x15, 0x2a,
-		0xb7, 0x76, 0x1d, 0x53,
-		0x38, 0x7d, 0x1f, 0x53,
-		0x53, 0x01, 0x88, 0x9a,
-		0xf4, 0x03, 0x00, 0x2a,
-		0xe0, 0x03, 0x15, 0x2a,
-		0x0a, 0x1c, 0x48, 0xd3,
-		0xe9, 0x5e, 0x58, 0xd3,
-		0x08, 0x7f, 0x60, 0xd3,
-		0xe5, 0xff, 0xff, 0x17,
-
-		0x40, 0xa3, 0x2d, 0x8b,
-		0x1f, 0x41, 0x40, 0x71,
-		0x6a, 0x02, 0x00, 0x54,
-	};
-
-	// We just repeat the sample one instruction at a time until NINST is reached.
-	unsigned char *p = (unsigned char *)sample;
-	for (uint i = 0; i < NINST; i++) {
-		// Little endian to native endianness. The values must be unsigned bytes.
-		u32 binst = (p[0] << 0) | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
-		ibuf[i] = binst;
-
-		p += 4;
-		if (p[0] == 0 && p[1] == 0 && p[2] == 0 && p[3] == 0) // end of sample array
-			p = (unsigned char *) sample; // -> start from the beginning
-	}
-
-	decode(ibuf, NINST, obuf);
-
-	if (1) {
-		for (uint i = 0; i < NINST; i++) {
-			Inst inst = obuf[i];
-			char regch = (inst.flags & W32) ? 'W' : 'X';
-			char flagsch = (inst.flags & SET_FLAGS) ? 'S' : ' ';
-
-			if (inst.op == A64_UNKNOWN) {
-				if (inst.error != NULL) {
-					printf("0x%04x: error \"%s\"\n", 4*i, inst.error);
-				} else {
-					printf("0x%04x: ???\n", 4*i);
-				}
-				continue;
+	char line[16]; // really, eight digits and some slack
+	ssize_t n = 0;
+	while (fgets(line, sizeof(line), stdin)) {
+		ninst++;
+		if (ninst < capacity) {
+			capacity *= 2;
+			ibuf = realloc(ibuf, capacity * sizeof(u32));
+			if (ibuf == NULL) {
+				fprintf(stderr, "out of memory");
+				return 1;
 			}
 
-			// We do not disambiguate here -- all instructions are printed
-			// the same; for example, instructions with two immediates have
-			// the imm field printed too.
-			printf("0x%04x: %d%c %c%d, %c%d, %c%d, imm=%lu, imm2=(%u,%u), offset=%4ld\n", 4*i, inst.op, flagsch,
-				regch, inst.rd, regch, inst.rn, regch, inst.rm, inst.imm, inst.immr, inst.imms, inst.offset);
+			if (ninst * sizeof(Inst) >= MAX_OBUF_SIZE) {
+				fprintf(stderr, "too many instructions, output buffer limit reached");
+				return 2;
+			}
 		}
+
+		sscanf(line, "%x", &ibuf[ninst-1]);
+	}
+
+	obuf = calloc(ninst, sizeof(Inst));
+	if (obuf == NULL) {
+		fprintf(stderr, "out of memory");
+		return 1;
+	}
+
+	double ibufM = ((double)ninst*sizeof(u32)) / (1024.0 * 1024.0);
+	double obufM = ((double)ninst*sizeof(Inst)) / (1024.0 * 1024.0);
+	double totalM = ibufM + obufM;
+	printf("#inst:     %7d\nibuf size: %6.1fM\nobuf size: %6.1fM\ntotal:     %6.1fM\n",
+		ninst, ibufM, obufM, totalM);
+
+	decode(ibuf, ninst, obuf);
+
+	for (uint i = 0; i < ninst; i++) {
+		Inst inst = obuf[i];
+		char regch = (inst.flags & W32) ? 'W' : 'X';
+		char flagsch = (inst.flags & SET_FLAGS) ? 'S' : ' ';
+
+		if (inst.op == A64_UNKNOWN) {
+			if (inst.error != NULL) {
+				printf("0x%04x: error \"%s\"\n", 4*i, inst.error);
+			} else {
+				printf("0x%04x: ???\n", 4*i);
+			}
+			continue;
+		}
+
+		if (inst.op == A64_UDF) {
+			printf("%04x udf\n", 4*i);
+			continue;
+		}
+
+		// We do not disambiguate here -- all instructions are printed
+		// the same; for example, instructions with two immediates have
+		// the imm field printed too.
+		printf("%04x %-12s%c %c%d, %c%d, %c%d, imm=%lu, imm2=(%u,%u), offset=%04ld, w32=%o, set_flags=%o, memext=%o, addrmode=%o, cond=%x\n",
+			4*i, mnemonics[inst.op], flagsch,
+			regch, inst.rd, regch, inst.rn, regch, inst.rm,
+			inst.imm, inst.immr, inst.imms, inst.offset, inst.flags&W32, inst.flags&SET_FLAGS,
+			get_mem_extend(inst.flags), get_addrmode(inst.flags), get_cond(inst.flags));
 	}
 
 	return 0;
