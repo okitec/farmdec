@@ -1,5 +1,6 @@
 char *mnemonics[] = {
 	"unknown",
+	"error",
 	"udf",
 	"adr",
 	"adrp",

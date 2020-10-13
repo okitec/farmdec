@@ -40,7 +40,8 @@ typedef u8 Reg;
 // modes of loads and stores are encoded similarly. See the Inst
 // structure for more detail.
 enum Op {
-	A64_UNKNOWN, // an invalid (Inst.error != NULL) or (to us) unknown instruction
+	A64_UNKNOWN, // unknown instruction (or Op field not set by accident)
+	A64_ERROR,   // invalid instruction, Inst.error contains error string
 	A64_UDF,     // throws undefined exception
 
 	/*** Data Processing -- Immediate ***/
@@ -264,11 +265,12 @@ enum Op {
 	A64_LDNP_FP,
 	A64_STNP_FP,
 
-	// Load/store register pair (post-indexed)
-	// Load/store register pair (offset)
-	// Load/store register pair (pre-indexed)
-	A64_LDP,
-	A64_STP,
+	// Load-acquire/store-release register     -- AM_SIMPLE
+	// Load/store register pair (post-indexed) -- AM_POST
+	// Load/store register pair (offset)       -- AM_OFF_IMM
+	// Load/store register pair (pre-indexed)  -- AM_PRE
+	A64_LDP, // LDP, LDXP
+	A64_STP, // STP, STXP
 	A64_LDP_FP,
 	A64_STP_FP,
 
@@ -280,15 +282,15 @@ enum Op {
 
 	// Load/store register (unprivileged): unsupported system instructions
 
-	// Load register (literal)
-	// Load-acquire/store-release register
-	// Load-LOAcquire/Store-LORelease register
-	// Load/store register (immediate post-indexed)
-	// Load/store register (immediate pre-indexed)
-	// Load/store register (register offset)
-	// Load/store register (unsigned immediate)
-	A64_LDR,
-	A64_STR,
+	// Load register (literal)                      -- AM_LITERAL
+	// Load-acquire/store-release register          -- AM_SIMPLE
+	// Load-LOAcquire/Store-LORelease register      -- AM_SIMPLE
+	// Load/store register (immediate post-indexed) -- AM_POST
+	// Load/store register (immediate pre-indexed)  -- AM_PRE
+	// Load/store register (register offset)        -- AM_OFF_REG, AM_OFF_EXT
+	// Load/store register (unsigned immediate)     -- AM_OFF_IMM
+	A64_LDR, // LDR, LDAR, LDLAR
+	A64_STR, // STR, STLR, STLLR
 	A64_LDR_FP,
 	A64_STR_FP,
 
@@ -409,7 +411,7 @@ struct Inst {
 		u64 imm;     // single immediate
 		s64 offset;  // branches, ADR, ADRP: PC-relative byte offset
 		Reg ra;      // third operand for 3-source data proc instrs (MADD, etc.)
-		char *error; // error string for op = A64_UNKNOWN, may be NULL
+		char *error; // error string for op = A64_ERROR
 
 		struct {
 			u32 imm16;
@@ -462,6 +464,7 @@ static Inst UNKNOWN_INST = {
 
 static Inst errinst(char *err) {
 	Inst inst = UNKNOWN_INST;
+	inst.op = A64_ERROR,
 	inst.error = err;
 	return inst;
 }
@@ -1419,18 +1422,13 @@ int main(int argc, char **argv) {
 		char regch = (inst.flags & W32) ? 'W' : 'X';
 		char flagsch = (inst.flags & SET_FLAGS) ? 'S' : ' ';
 
-		if (inst.op == A64_UNKNOWN) {
-			if (inst.error != NULL) {
-				printf("0x%04x: error \"%s\"\n", 4*i, inst.error);
-			} else {
-				printf("0x%04x: ???\n", 4*i);
-			}
-			continue;
-		}
 
-		if (inst.op == A64_UDF) {
-			printf("%04x udf\n", 4*i);
-			continue;
+		switch (inst.op) {
+		case A64_UNKNOWN: printf("%04x ???\n", 4*i);                      continue;
+		case A64_ERROR:   printf("%04x error \"%s\"\n", 4*i, inst.error); continue;
+		case A64_UDF:     printf("%04x udf\n", 4*i);                       continue;
+		default:
+			break; // normal instruction
 		}
 
 		// We do not disambiguate here -- all instructions are printed
