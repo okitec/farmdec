@@ -100,7 +100,18 @@ enum Op {
 
 	A64_BCOND,
 
-	// XXX system instructions
+	// Exception generation
+	//
+	// With the exception of SVC, they are not interesting for lifting
+	// userspace programs, but were included since they are trivial.
+	A64_SVC, // system call
+	A64_HVC,
+	A64_SMC,
+	A64_BRK,
+	A64_HLT,
+	A64_DCPS1,
+	A64_DCPS2,
+	A64_DCPS3,
 
 	// Unconditional branch (register)
 	A64_BR,
@@ -979,9 +990,29 @@ static Inst branches(u32 binst) {
 		inst.offset = sext(((binst >> 5) & 0b1111111111111111111) << 2, 19+2); // imm19 * 4
 		break;
 
-	case System:
-		return errinst("System instructions not supported"); // XXX _some_ should be decoded. barriers, CFINV
+	case System: {
+		bool exc = !((binst >> 24) & 1); // exception → zero bit
 
+		if (exc) {
+			u8 opcLL = (((binst >> 21) & 0b111) << 2) | (binst & 0b11); // opc(3):LL(2)
+			switch (opcLL) {
+			case 0b00001: inst.op = A64_SVC; break; // system call
+			case 0b00010: inst.op = A64_HVC; break;
+			case 0b00011: inst.op = A64_SMC; break;
+			case 0b00100: inst.op = A64_BRK; break;
+			case 0b01000: inst.op = A64_HLT; break;
+			case 0b10101: inst.op = A64_DCPS1; break;
+			case 0b10110: inst.op = A64_DCPS2; break;
+			case 0b10111: inst.op = A64_DCPS3; break;
+			default:
+				return errinst("branches/System/exceptions: bad instruction");
+			}
+
+			inst.imm = (binst >> 5) & 0xFFFF; // imm16
+			break;
+		}
+		return errinst("System instructions not supported"); // XXX _some_ should be decoded. barriers, CFINV
+	}
 	case UncondBranchReg: {
 		u32 op = (binst >> 21) & 0b11;
 		switch (op) {
