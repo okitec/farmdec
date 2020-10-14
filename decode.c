@@ -78,9 +78,6 @@ enum Op {
 	A64_ASR_IMM,
 	A64_SBFIZ,
 	A64_SBFX,
-	A64_SXTB,
-	A64_SXTH,
-	A64_SXTW,
 	A64_BFM,
 	A64_BFC,
 	A64_BFI,
@@ -90,8 +87,10 @@ enum Op {
 	A64_LSR_IMM,
 	A64_UBFIZ,
 	A64_UBFX,
-	A64_UXTB,
-	A64_UXTH,
+
+	// Synthetic instruction comprising the SXTB, SXTH, SXTW, UXTB and UXTH aliases of SBFM and UBFM.
+	// The kind of extension is stored in Inst.extend.type.
+	A64_EXTEND,
 
 	// Extract
 	A64_EXTR,
@@ -373,9 +372,12 @@ enum ExtendType {
 	SXTX = (1 << 2) | SZ_X,
 };
 
-// XXX keep it at 16 bytes if possible
+// An Inst is a decoded instruction. Depending on the .op field, you can access
+// the proper registers and immediates. Generally, if there is just one immediate,
+// it is in the .imm field, or in the .offset field. If the instruction has more
+// than one immediate, they are represented by one of the structs in the union.
 struct Inst {
-	Op  op;
+	Op op;
 
 	// Overloaded flags bitfield. The two lowest bits W32 and SET_FLAGS are never overloaded.
 	//
@@ -396,7 +398,7 @@ struct Inst {
 			Reg rd;   // destination register - Rd
 			Reg rn;   // first (or only) operand, read-only - Rn, Rt (CBZ)
 			Reg rm;   // second operand, read-only - Rm
-		};
+		}; // XXX according to the C standard, these three share their memory!
 		struct {
 			Reg rt;  // destination of load, source of store
 			Reg rn;  // base addressing register (Xn)
@@ -418,9 +420,9 @@ struct Inst {
 			u32 lsl;   // left shift amount (0, 16, 32, 48)
 		} mov_wide;
 		struct {
-			u32 immr;
-			u32 imms;
-		}; // XXX just used by bitfield operations, right?
+			u32 lsb;
+			u32 width;
+		} bfm; // BFM aliases: BFXIL, SBFIZ, SBFX, UBFIZ, UBFX
 		struct {
 			u32 nzcv;
 			u32 imm5;
@@ -578,7 +580,6 @@ enum special_registers {
 	STACK_POINTER = 100 // arbitrary
 };
 
-
 // The destination register Rd, if present, occupies bits 0..4.
 // Register 31 is treated as the Zero/Discard register ZR/WZR.
 static Reg regRd(u32 binst) {
@@ -623,6 +624,8 @@ static s64 sext(u64 x, u8 b) {
 	s64 mask = 1U << (b - 1);
 	return (((s64)x) ^ mask) - mask;
 }
+
+static Inst find_bfm_alias(Op op, bool w32, Reg rd, Reg rn, u8 immr, u8 imms);
 
 static Inst data_proc_imm(u32 binst) {
 	Inst inst = UNKNOWN_INST;
@@ -777,6 +780,8 @@ static Inst data_proc_imm(u32 binst) {
 				inst.op = A64_MOV_IMM;
 				inst.imm = imm16 << inst.mov_wide.lsl;
 				break;
+			case A64_MOVK:
+				break;
 			default:
 				// Shut up impossible unhandled enum value warning.
 				return errinst("data_proc_imm/Move: cannot happen");
@@ -786,61 +791,22 @@ static Inst data_proc_imm(u32 binst) {
 		break;
 	}
 	case Bitfield: {
-		switch (top3 & 0b011) { // base instructions at this point
-		case 0b00: inst.op = A64_SBFM; break;
-		case 0b01: inst.op = A64_BFM;  break;
-		case 0b10: inst.op = A64_UBFM; break;
+		Op op = A64_UNKNOWN;
+
+		switch (top3 & 0b011) { // base instructions
+		case 0b00: op = A64_SBFM; break;
+		case 0b01: op = A64_BFM;  break;
+		case 0b10: op = A64_UBFM; break;
 		default:
 			return errinst("data_proc_imm/Bitfield: neither SBFM, BFM or UBFM");
 		}
 
-		u64 immr = (binst >> 16) & 0b111111;
-		u64 imms = (binst >> 10) & 0b111111;
-
-		// Now that we have the immediates, we can check for fitting aliases.
-		switch (inst.op) {
-		case A64_SBFM:
-			if (((inst.flags & W32) && imms == 31) || (!(inst.flags & W32) && imms == 63)) {
-				// SBFM Rd, Rn, #immr, #31/#63 -> ASR (shift := immr)
-				inst.op = A64_ASR_IMM;
-				inst.imm = immr;
-				goto regs;
-			}
-			if (imms < immr) {
-				inst.op = A64_SBFIZ; // SBFIZ Rd, Rn, #lsb, #width
-				inst.immr = 0xDEAD;  // XXX immr = -lsb MOD 32/64 → lsb = ?
-				inst.imms = imms + 1; // imms = width - 1 → width = imms + 1
-				goto regs;
-			}
-			if (immr == 0) {
-				switch (imms) {
-				case  7: inst.op = A64_SXTB; inst.imm = 0; goto regs; // no immediate
-				case 15: inst.op = A64_SXTH; inst.imm = 0; goto regs; // no immediate
-				case 31: inst.op = A64_SXTW; inst.imm = 0; goto regs; // no immediate
-				}
-			}
-			inst.op = A64_SBFX; // SBFX Rd, Rn, #lsb, #width
-			inst.immr = immr;            // immr = lsb
-			inst.imms = imms - immr + 1; // imms = lsb + width - 1 → width = imms - lsb + 1;
-
-			break;
-			// There is no SBFM general case not handled by an alias
-			// XXX is that true?
-		case A64_BFM:
-			// XXX BFM aliases not implemented
-			break;
-
-		case A64_UBFM:
-			// XXX UBFM aliases not implemented
-			// XXX how to re-use parts of SBFM?
-			break;
-		default:
-			return errinst("data_proc_imm/Bitfield: cannot happen");
-		}
-
-	regs:
-		inst.rd = regRd(binst);
-		inst.rn = regRn(binst);
+		bool w32 = (inst.flags & W32);
+		u8 immr = (binst >> 16) & 0b111111;
+		u8 imms = (binst >> 10) & 0b111111;
+		Reg rd = regRd(binst);
+		Reg rn = regRn(binst);
+		inst = find_bfm_alias(op, w32, rd, rn, immr, imms);
 		break;
 	}
 	case Extract: {
@@ -857,6 +823,93 @@ static Inst data_proc_imm(u32 binst) {
 	}
 	}
 
+	return inst;
+}
+
+// There is no BFM, SBFM or UBFM instruction without a more specific alias.
+// Returns a complete instruction, with flags and fields properly set.
+static Inst find_bfm_alias(Op op, bool w32, Reg rd, Reg rn, u8 immr, u8 imms) {
+	Inst inst = UNKNOWN_INST;
+	u8 all_ones = (w32) ? 31 : 63; // for ASR, LSL, LSR
+	u8 bits = (w32) ? 32 : 64;     // for BFC, BFI, LSL, SBFIZ, UBFIZ
+
+	inst.rd = rd;
+	inst.rn = rn;
+	inst.flags |= W32;
+
+	// General note:
+	//
+	//   immr = -lsb MOD bits
+	// ≡ immr = bits - lsb   (∀lsb <= bits)
+	// ≡ lsb  = bits - immr 
+
+	if (op == A64_BFM) {
+		// BFM Rd, Rn, immr=#lsb, imms=#(lsb+width-1) → BFXIL Rd, Rn, #lsb, #width
+		if (imms >= immr) {
+			inst.op = A64_BFXIL;
+			inst.bfm.lsb = immr;
+			inst.bfm.width = imms - immr + 1;
+			return inst;
+		}
+
+		// BFM Rd, ZR, immr=#(-lsb MOD bits), imms=#(width-1) → BFC Rd, #lsb, #width
+		// BFM Rd, Rn, immr=#(-lsb MOD bits), imms=#(width-1) → BFI Rd, Rn, #lsb, #width
+		inst.op = (rn == ZERO_REG) ? A64_BFC : A64_BFI;
+		inst.bfm.lsb = bits - immr;
+		inst.bfm.width = imms + 1;
+		return inst;
+	}
+
+	// SBFM and UBFM are extremely similar except for their sign/opcode.
+	bool sign = (op == A64_SBFM);
+
+	// UBFM Rd, Rn, immr=#(-<shift> MOD 32/64), imms=#(31/63 - <shift>) → LSL Rd, Rn, #shift
+	if (!sign && imms + 1 == immr && imms != all_ones) {
+		inst.op = A64_LSL_IMM;
+		inst.imm = all_ones - imms; // 31 - imms or 63 - imms
+		return inst;
+	}
+
+	// UBFM Rd, Rn, immr=#shift, imms=#31/#63 → LSR Rd, Rn, #shift
+	// SBFM Rd, Rn, immr=#shift, imms=#31/#63 → ASR Rd, Rn, #shift
+	if (imms == all_ones) {
+		inst.op = (sign) ? A64_ASR_IMM : A64_LSR_IMM;
+		inst.imm = immr;
+		return inst;
+	}
+
+	// UBFM Rd, ZR, immr=#(-lsb MOD bits), imms=#(width-1) → UBFIZ Rd, #lsb, #width
+	// SBFM Rd, ZR, immr=#(-lsb MOD bits), imms=#(width-1) → SBFIZ Rd, #lsb, #width
+	if (imms < immr) {
+		inst.op = (sign) ? A64_SBFIZ : A64_UBFIZ;
+		inst.bfm.lsb = bits - immr;
+		inst.bfm.width = imms + 1;
+		return inst;
+	}
+
+	// UBFM Rd, Rn, immr=#0, imms=#7  → UXTB Rd, Rn
+	// UBFM Rd, Rn, immr=#0, imms=#15 → UXTH Rd, Rn
+	// SBFM Rd, Rn, immr=#0, imms=#7  → SXTB Rd, Rn
+	// SBFM Rd, Rn, immr=#0, imms=#15 → SXTH Rd, Rn
+	// SBFM Rd, Rn, immr=#0, imms=#31 → SXTW Rd, Rn
+	if (immr == 0) {
+		switch (imms) {
+		case  7: inst.op = A64_EXTEND; inst.extend.type = (sign) ? SXTB : UXTB; return inst;
+		case 15: inst.op = A64_EXTEND; inst.extend.type = (sign) ? SXTH : UXTH; return inst;
+		case 31:
+			inst.op = A64_EXTEND;
+			inst.extend.type = SXTW;
+			return (sign) ? inst : errinst("find_bfm_alias: there is no UXTW instruction");
+		}
+	}
+
+	// This catches all the cases for which no more specific alias exists.
+	//
+	// UBFM Rd, Rn, immr=#lsb, imms=#(lsb+width-1) → UBFX Rd, Rn, #lsb, #width
+	// SBFM Rd, Rn, immr=#lsb, imms=#(lsb+width-1) → SBFX Rd, Rn, #lsb, #width
+	inst.op = (sign) ? A64_SBFX : A64_UBFX;
+	inst.bfm.lsb = immr;
+	inst.bfm.width = imms - immr + 1;
 	return inst;
 }
 
@@ -1434,10 +1487,10 @@ int main(int argc, char **argv) {
 		// We do not disambiguate here -- all instructions are printed
 		// the same; for example, instructions with two immediates have
 		// the imm field printed too.
-		printf("%04x %-12s%c %c%d, %c%d, %c%d, imm=%lu, imm2=(%u,%u), offset=%04ld, w32=%o, set_flags=%o, memext=%o, addrmode=%o, cond=%x\n",
+		printf("%04x %-12s%c %c%d, %c%d, %c%d, imm=%lu, imm2=(%u,%u), offset=%+ld, w32=%o, set_flags=%o, memext=%o, addrmode=%o, cond=%x\n",
 			4*i, mnemonics[inst.op], flagsch,
 			regch, inst.rd, regch, inst.rn, regch, inst.rm,
-			inst.imm, inst.immr, inst.imms, inst.offset, inst.flags&W32, inst.flags&SET_FLAGS,
+			inst.imm, inst.bfm.lsb, inst.bfm.width, inst.offset, inst.flags&W32, inst.flags&SET_FLAGS,
 			get_mem_extend(inst.flags), get_addrmode(inst.flags), get_cond(inst.flags));
 	}
 
