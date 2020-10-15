@@ -16,6 +16,7 @@ typedef enum AddrMode AddrMode;
 typedef enum Cond Cond;
 typedef enum ExtendType ExtendType;
 typedef enum FPSize FPSize;
+typedef enum MemOrdering MemOrdering;
 typedef enum Op Op;
 typedef enum Shift Shift;
 typedef enum Size Size;
@@ -317,7 +318,7 @@ enum Op {
 	A64_LDCLR,
 	A64_LDEOR,
 	A64_LDSET,
-	A64_LDSMAX, // Signed/Unsigned (SMAX, UMAX) → flags, not opcode ? XXX
+	A64_LDSMAX,
 	A64_LDSMIN,
 	A64_LDUMAX,
 	A64_LDUMIN,
@@ -460,7 +461,7 @@ struct Inst {
 			u16 load;  // enum MemOrdering for Load -- None, Acquire, LOAcquire, AcquirePC
 			u16 store; // --------------- for Store -- None, Release, LORelease
 
-			Reg rs;    // status register for exclusive store pair (STXP, STLXP)
+			Reg rs;    // status register for exclusive store (STXR, STLXR, STXP, STLXP)
 		} ldst_order; // atomics and load/stores from Exclusive group
 		struct {
 			u32 nreg;   // consecutive vector registers to load/store
@@ -852,7 +853,7 @@ static Inst find_bfm_alias(Op op, bool w32, Reg rd, Reg rn, u8 immr, u8 imms) {
 	//
 	//   immr = -lsb MOD bits
 	// ≡ immr = bits - lsb   (∀lsb <= bits)
-	// ≡ lsb  = bits - immr 
+	// ≡ lsb  = bits - immr
 
 	if (op == A64_BFM) {
 		// BFM Rd, Rn, immr=#lsb, imms=#(lsb+width-1) → BFXIL Rd, Rn, #lsb, #width
@@ -1410,6 +1411,576 @@ static Inst data_proc_reg(u32 binst) {
 	return inst;
 }
 
+static Inst loads_and_stores(u32 binst) {
+	Inst inst = UNKNOWN_INST;
+
+	u8 top2 = (binst >> 30) & 0b11;
+
+	// For loads and stores, there is a lot of shared structure,
+	// so we don't quite follow the structure of the document like
+	// in the other instruction groups.
+	enum {
+		Unknown,
+		SIMDMult,       // LDx, STx
+		SIMDSingle,     // --------, LDxR
+		Tags,           // LDG, STG -- omitted
+		Exclusive,      // Exclusive, Load-acquire/store-release, swaps
+		Literal,        // Load from label
+		PairNoAlloc,    // LDNP, STNP -- normal access with !nontemporal hint
+		Pair,           // LDP, STP
+		UnscaledImm,    // LDUR, STUR -- Unscaled signed Immediate
+		Register,       // LDR, STR
+		Unprivileged,   // LDTR, STTR -- omitted
+		Atomic,
+		PAC             // Pointer Auth -- omitted
+	} kind = Unknown;
+
+	// We find the kind as usual, but we also set the addrmode here,
+	// so that the switch below can handle the common code regardless
+	// of addrmode.
+	switch ((binst >> 23) & 0b1111111) {
+	case 0b0011000: // LDx, STx mult. struct.
+		kind = SIMDMult;
+		inst.flags = set_addrmode(inst.flags, AM_SIMPLE);
+		break;
+	case 0b0011001: // ----- (post-indexed)
+		kind = SIMDMult;
+		inst.flags = set_addrmode(inst.flags, AM_POST);
+		break;
+	case 0b0011010: // LDx, STx single struct.
+		kind = SIMDSingle;
+		inst.flags = set_addrmode(inst.flags, AM_SIMPLE);
+		break;
+	case 0b0011011: // ----- (post-indexed)
+		kind = SIMDSingle;
+		inst.flags = set_addrmode(inst.flags, AM_POST);
+		break;
+	case 0b0110010:
+	case 0b0110011: // 011001x -- memory tags (UNIMPLEMENTED)
+		kind = Tags;
+		break;
+	case 0b0010000:
+	case 0b0010001: // 001000x -- exclusive
+		kind = Exclusive;
+		break;
+	case 0b0110000:
+	case 0b0110001:
+	case 0b0111000:
+	case 0b0111001: // 011x00x -- load literal
+		kind = Literal;
+		inst.flags = set_addrmode(inst.flags, AM_LITERAL);
+		break;
+	case 0b1010000:
+	case 0b1011000: // 101x000 -- no-allocate pair
+		kind = PairNoAlloc;
+		inst.flags = set_addrmode(inst.flags, AM_OFF_IMM);
+		break;
+	case 0b1010001:
+	case 0b1011001: // 101x001 -- pair (post-indexed)
+		kind = Pair;
+		inst.flags = set_addrmode(inst.flags, AM_POST);
+		break;
+	case 0b1010010:
+	case 0b1011010: // 101x010 -- pair (signed offset)
+		kind = Pair;
+		inst.flags = set_addrmode(inst.flags, AM_OFF_IMM);
+		break;
+	case 0b1010011:
+	case 0b1011011: // 101x011 -- pair (pre-indexed)
+		kind = Pair;
+		inst.flags = set_addrmode(inst.flags, AM_PRE);
+		break;
+	case 0b1110000:
+	case 0b1110001:
+	case 0b1111000:
+	case 0b1111001: { // 111x00x -- many things, mostly Register
+		u32 op4 = (binst >> 10) & 0b11;
+		u32 b21 = (binst >> 21) & 1;
+
+		if (b21) {
+			switch (op4) {
+			case 0b00:
+				kind = Atomic;
+				inst.flags = set_addrmode(inst.flags, AM_SIMPLE);
+				break;
+			case 0b10: {
+				kind = Register;
+
+				// UXTX (0b011) → no extension → shifted register offset
+				u8 option = (binst >> 13) & 0b111;
+				inst.flags = set_addrmode(inst.flags, (option == UXTX) ? AM_OFF_REG : AM_OFF_EXT);
+				break;
+			}
+			case 0b01:
+			case 0b11:
+				kind = PAC;
+				break;
+			}
+			break;
+		}
+
+		kind = Register;
+		switch (op4) {
+		case 0b00:
+			kind = UnscaledImm; // LDUR, STUR
+			inst.flags = set_addrmode(inst.flags, AM_OFF_IMM);
+			break;
+		case 0b01: inst.flags = set_addrmode(inst.flags, AM_POST); break;
+		case 0b10: kind = Unprivileged;                            break;
+		case 0b11: inst.flags = set_addrmode(inst.flags, AM_PRE);  break;
+		}
+		break;
+	}
+	case 0b1110010:
+	case 0b1110011:
+	case 0b1111010:
+	case 0b1111011: { // 111x01x -- unsigned immediate
+		kind = Register;
+		// AM_OFF_IMM: unambiguous since UnscaledImm is a different kind and has other opcodes.
+		inst.flags = set_addrmode(inst.flags, AM_OFF_IMM);
+		break;
+	}
+	default:
+		return errinst("loads_and_stores: invalid instruction");
+	}
+
+	switch (kind) {
+	case Unknown:
+		return UNKNOWN_INST;
+	case SIMDMult: {
+		u8 Q = (binst >> 30) & 1;
+		bool load = (binst >> 22) & 1;
+		VectorArrangement va = (((binst >> 10) & 0b11) << 1) | Q; // size(2):Q(1)
+		uint nreg = 0;
+
+		switch ((binst >> 12) & 0b1111) { // opcode(4)
+		case 0b0000: inst.op = (load) ? A64_LD4_MULT : A64_ST4_MULT; nreg = 4; break;
+		case 0b0010: inst.op = (load) ? A64_LD1_MULT : A64_ST1_MULT; nreg = 4; break;
+		case 0b0100: inst.op = (load) ? A64_LD3_MULT : A64_ST3_MULT; nreg = 3; break;
+		case 0b0110: inst.op = (load) ? A64_LD1_MULT : A64_ST1_MULT; nreg = 3; break;
+		case 0b0111: inst.op = (load) ? A64_LD1_MULT : A64_ST1_MULT; nreg = 1; break;
+		case 0b1000: inst.op = (load) ? A64_LD2_MULT : A64_ST2_MULT; nreg = 2; break;
+		case 0b1010: inst.op = (load) ? A64_LD1_MULT : A64_ST1_MULT; nreg = 2; break;
+		}
+
+		inst.flags = set_mem_extend(inst.flags, va);
+		inst.simd_ldst.nreg = nreg;
+		inst.ldst.rt = regRd(binst);
+		inst.ldst.rn = regRnSP(binst);
+
+		// Post-indexed addrmode, either register-based or an immediate that
+		// depends on the number of bytes read/written.
+		if (get_addrmode(inst.flags) == AM_POST) {
+			inst.ldst.rm = regRm(binst);
+			if (inst.ldst.rm == ZERO_REG) {
+				switch (Q) {
+				case 0: inst.simd_ldst.offset = nreg *  8; break; //  64-bit half vectors
+				case 1: inst.simd_ldst.offset = nreg * 16; break; // 128-bit full vectors
+				}
+			}
+		}
+		break;
+	}
+	case SIMDSingle: {
+		u8 Q = (binst >> 30) & 1;
+		bool load = (binst >> 22) & 1;
+		bool even = (binst >> 21) & 1; // R(1): determines evenness of inst: R=0 → LD1, LD3; R=1 → LD2, LD4
+		FPSize size = 0;
+		u8 size_field = (binst >> 10) & 0b11;         // size(2) is called "size", but is actually part of index
+		VectorArrangement va = (size_field << 1) | Q; // size(2):Q(1)
+		uint nreg = 0;
+
+		if (load) {
+			switch ((binst >> 13) & 0b111) { // opcode(3)
+			case 0b000: inst.op = (even) ? A64_LD2_SINGLE : A64_LD1_SINGLE; size = FSZ_B; break;
+			case 0b001: inst.op = (even) ? A64_LD4_SINGLE : A64_LD3_SINGLE; size = FSZ_B; break;
+			case 0b010: inst.op = (even) ? A64_LD2_SINGLE : A64_LD1_SINGLE; size = FSZ_H; break;
+			case 0b011: inst.op = (even) ? A64_LD4_SINGLE : A64_LD3_SINGLE; size = FSZ_H; break;
+			case 0b100:
+				inst.op = (even) ? A64_LD2_SINGLE : A64_LD1_SINGLE;
+				size = (size_field == 0b01) ? FSZ_D : FSZ_S;
+				break;
+			case 0b101:
+				inst.op = (even) ? A64_LD4_SINGLE : A64_LD3_SINGLE;
+				size = (size_field == 0b01) ? FSZ_D : FSZ_S;
+				break;
+			case 0b110: inst.op = (even) ? A64_LD2R       : A64_LD1R; size = (binst >> 10) & 0b11; break;
+			case 0b111: inst.op = (even) ? A64_LD4R       : A64_LD3R; size = (binst >> 10) & 0b11; break;
+			}
+		} else {
+			switch ((binst >> 13) & 0b111) { // opcode(3)
+			case 0b000: inst.op = (even) ? A64_ST2_SINGLE : A64_ST1_SINGLE; size = FSZ_B; break;
+			case 0b001: inst.op = (even) ? A64_ST4_SINGLE : A64_ST3_SINGLE; size = FSZ_B; break;
+			case 0b010: inst.op = (even) ? A64_ST2_SINGLE : A64_ST1_SINGLE; size = FSZ_H; break;
+			case 0b011: inst.op = (even) ? A64_ST4_SINGLE : A64_ST3_SINGLE; size = FSZ_H; break;
+			case 0b100:
+				inst.op = (even) ? A64_ST2_SINGLE : A64_ST1_SINGLE;
+				size = (size_field == 0b01) ? FSZ_D : FSZ_S;
+				break;
+			case 0b101:
+				inst.op = (even) ? A64_ST4_SINGLE : A64_ST3_SINGLE;
+				size = (size_field == 0b01) ? FSZ_D : FSZ_S;
+				break;
+			// No STxR instructions, since "Store and Replicate to all Lanes" is nonsensical.
+			}
+		}
+
+		switch (inst.op) {
+		case A64_LD1R: case A64_LD1_SINGLE: case A64_ST1_SINGLE: nreg = 1; break;
+		case A64_LD2R: case A64_LD2_SINGLE: case A64_ST2_SINGLE: nreg = 2; break;
+		case A64_LD3R: case A64_LD3_SINGLE: case A64_ST3_SINGLE: nreg = 3; break;
+		case A64_LD4R: case A64_LD4_SINGLE: case A64_ST4_SINGLE: nreg = 4; break;
+		default: break;
+		}
+
+		// The index for the vector element is tightly encoded using various separate bits.
+		// Larger elements imply fewer distinct indexes.
+		u8 S = (binst >> 12) & 1;
+		switch (size) {
+		case FSZ_B: inst.simd_ldst.index = (Q << 3) | (S << 2) | size_field; break;        // Q:S:size    0..15
+		case FSZ_H: inst.simd_ldst.index = (Q << 2) | (S << 1) | (size_field >> 1); break; // Q:S:size<1> 0..7
+		case FSZ_S: inst.simd_ldst.index = (Q << 1) | S; break;                            // Q:S         0..3
+		case FSZ_D: inst.simd_ldst.index = Q; break;                                       // Q           0..1
+		case FSZ_Q: break; // impossible
+		}
+
+		inst.flags = set_mem_extend(inst.flags, va);
+		inst.simd_ldst.nreg = nreg;
+		inst.ldst.rt = regRd(binst);
+		inst.ldst.rn = regRnSP(binst);
+
+		// Post-indexed addrmode, either register-based or an immediate that
+		// depends on the number of bytes read/written.
+		if (get_addrmode(inst.flags) == AM_POST) {
+			inst.ldst.rm = regRm(binst);
+			if (inst.ldst.rm == ZERO_REG) {
+				switch (size) {
+				case FSZ_B: inst.simd_ldst.offset = nreg * 1; break;
+				case FSZ_H: inst.simd_ldst.offset = nreg * 2; break;
+				case FSZ_S: inst.simd_ldst.offset = nreg * 4; break;
+				case FSZ_D: inst.simd_ldst.offset = nreg * 8; break;
+				case FSZ_Q: break; // impossible
+				}
+			}
+		}
+		break;
+	}
+	case Tags:
+		return errinst("loads_and_stores: Tag instructions not supported");
+	case Exclusive: {
+		u8 size = top2;
+		bool o0 = (binst >> 15) & 1;
+		bool o1 = (binst >> 21) & 1;
+		bool load = (binst >> 22) & 1;
+		bool o2 = (binst >> 23) & 1;
+
+		if (o1) { // CAS, CASL, CASA, CASAL, CASP, CASPL, CASPA, CASPAL, LDXP, LDAXP, STXP, STLXP
+			if (o2) { // CAS*
+				inst.op = A64_CAS;
+				inst.ldst_order.load = (load) ? MO_ACQUIRE : MO_NONE;
+				inst.ldst_order.store = (o0) ? MO_RELEASE : MO_NONE;
+				goto common;
+			}
+
+			// The size field is used to differentiate CASP and pair instructions.
+			// Neither CASP nor the pair instructions allow byte or halfword sizes.
+			if (size == SZ_B || size == SZ_H) { // CASP
+				inst.op = A64_CASP;
+				inst.ldst_order.load = (load) ? MO_ACQUIRE : MO_NONE;
+				inst.ldst_order.store = (o0) ? MO_RELEASE : MO_NONE;
+
+				// size+2: size=00 → SZ_W (10), size=01 → SZ_X (11) here.
+				size += 2;
+				goto common;
+			}
+
+			// Exclusive Load/Store Pair
+			if (load) {
+				inst.op = A64_LDXP;
+				inst.ldst_order.load = (o0) ? MO_ACQUIRE : MO_NONE;
+			} else {
+				inst.op = A64_STXP;
+				inst.ldst_order.store = (o0) ? MO_RELEASE : MO_NONE;
+				inst.ldst_order.rs = regRm(binst); // status register
+			}
+			inst.ldst.rt2 = (binst >> 10) & 0b11111;
+			goto common;
+		}
+
+		// LDXR, LDAXR, STXR, STLXR, STLR, STLLR, LDAR, LDLAR
+		bool exclusive = !o2; // LDXR, STXR, ...?
+
+		// The ordered, but non-exclusive LDAR, STLR, ... are represented
+		// as LDR/STR with addrmode=AM_SIMPLE and the proper ldst_order
+		// values.
+
+		if (load) {
+			inst.op = (exclusive) ? A64_LDXR : A64_LDR;
+			if (exclusive)
+				inst.ldst_order.load = (o0) ? MO_ACQUIRE : MO_NONE;
+			else
+				inst.ldst_order.load = (o0) ? MO_LO_ACQUIRE : MO_ACQUIRE;
+		} else {
+			inst.op = (exclusive) ? A64_STXR : A64_STR;
+			if (exclusive)
+				inst.ldst_order.store = (o0) ? MO_RELEASE : MO_NONE;
+			else
+				inst.ldst_order.store = (o0) ? MO_LO_RELEASE : MO_RELEASE;
+			inst.ldst_order.rs = regRm(binst); // status register
+		}
+
+	common:
+		inst.flags = set_mem_extend(inst.flags, size);
+		if (size != SZ_X)
+			inst.flags |= W32;
+
+		inst.ldst.rt = regRd(binst);
+		inst.ldst.rn = regRnSP(binst); // stack pointer can be base register
+		break;
+	}
+	case Literal: {
+		bool vector = (binst >> 26) & 1;
+
+		inst.op = (vector) ? A64_LDR_FP : A64_LDR;
+		if (vector) {
+			switch (top2) { // opc
+			case 0b00: inst.flags = set_mem_extend(inst.flags, FSZ_S); break;
+			case 0b01: inst.flags = set_mem_extend(inst.flags, FSZ_D); break;
+			case 0b10: inst.flags = set_mem_extend(inst.flags, FSZ_Q); break;
+			case 0b11: return errinst("loads_and_stores/Literal: unallocated instruction");
+			}
+		} else {
+			switch (top2) { // opc
+			case 0b00: inst.flags = W32 | set_mem_extend(inst.flags, SZ_W); break;         // 32-bit LDR
+			case 0b01: inst.flags = set_mem_extend(inst.flags, SZ_X); break;               // 64-bit LDR
+			case 0b10: inst.flags = set_mem_extend(inst.flags, SXTW); break;               // LDRSW
+			case 0b11: return errinst("loads_and_stores/Literal: PRFM not yet supported"); // XXX PRFM
+			}
+		}
+
+		inst.offset = sext(((binst >> 5) & 0b1111111111111111111) << 2, 19+2); // imm19 * 4
+		inst.ldst.rt = regRd(binst);
+		break;
+	}
+	case PairNoAlloc: // fall through
+	case Pair: {
+		bool load = (binst >> 22) & 1;
+		bool vector = (binst >> 26) & 1;
+		int scale = 0; // The byte offset is stored as <imm7>/<scale>.
+
+		if (vector) {
+			inst.op = (load) ? A64_LDP_FP : A64_STP_FP;
+			switch (top2) {
+			case 0b00: scale =  4; inst.flags = set_mem_extend(inst.flags, FSZ_S); break; // Single (32 bits)
+			case 0b01: scale =  8; inst.flags = set_mem_extend(inst.flags, FSZ_D); break; // Double (64 bits)
+			case 0b10: scale = 16; inst.flags = set_mem_extend(inst.flags, FSZ_Q); break; // Quad  (128 bits)
+			default:
+				return errinst("loads_and_stores: invalid opc for LDP/STP");
+			}
+		} else {
+			inst.op = (load) ? A64_LDP : A64_STP;
+			switch (top2) {
+			case 0b00: scale = 4; inst.flags = W32 | set_mem_extend(inst.flags, SZ_W); break; // 32-bit
+			case 0b01: scale = 4; inst.flags = set_mem_extend(inst.flags, SXTW); break;       // LDPSW, STPSW
+			case 0b10: scale = 8; inst.flags = set_mem_extend(inst.flags, SZ_X); break;       // 64-bit
+			default:
+				return errinst("loads_and_stores: invalid opc for LDP/STP");
+			}
+		}
+
+		// PairNoAlloc is just Pair with a non-temporal hint, so no changes apart from the opcode.
+		if (kind == PairNoAlloc) {
+			switch (inst.op) {
+			case A64_LDP:    inst.op = A64_LDNP; break;
+			case A64_STP:    inst.op = A64_STNP; break;
+			case A64_LDP_FP: inst.op = A64_LDNP_FP; break;
+			case A64_STP_FP: inst.op = A64_STNP_FP; break;
+			default:
+				// Shut up impossible unhandled enum warning.
+				return errinst("loads_and_stores/Pair: cannot happen");
+			}
+		}
+
+		uint imm7 = (binst >> 15) & 0b1111111;
+		inst.offset = scale * sext(imm7, 7);
+
+		inst.ldst.rt = regRd(binst);
+		inst.ldst.rn = regRnSP(binst); // stack pointer can be base register
+		inst.ldst.rt2 = (binst >> 10) & 0b11111;
+		break;
+	}
+	case UnscaledImm: // fall through -- like Register, but with different immediate (and LDUR/STUR opcodes)
+	case Register: {
+		bool vector = (binst >> 26) & 1;
+		bool load = false;
+		int scale = 0;    // for unsigned AM_OFF_IMM
+		int shift = top2; // log2(accessed bits); shift amount for AM_OFF_REG and for AM_OFF_EXT
+
+		switch (top2) {
+		case 0b00: scale = 1; break;
+		case 0b01: scale = 2; break;
+		case 0b10: scale = 4; break;
+		case 0b11: scale = 8; break;
+		}
+
+		u8 opc = (binst >> 22) & 0b11;
+		if (vector) {
+			FPSize size = 0;
+			switch (opc) {
+			case 0b00: load = false; size = top2; break; // STR_FP 8, 16, 32, 64 bit
+			case 0b01: load = true;  size = top2; break; // LDR_FP ------
+			case 0b10: // STR_FP 128 bit
+				if (top2 != 0b00) {
+					return errinst("loads_and_stores/Register: bad instruction");
+				}
+				load = false;
+				scale = 16;
+				shift = 4;
+				size = FSZ_Q;
+				break;
+			case 0b11: // LDR_FP 128 bit
+				if (top2 != 0b00) {
+					return errinst("loads_and_stores/Register: bad instruction");
+				}
+				load = true;
+				scale = 16;
+				shift = 4;
+				size = FSZ_Q;
+				break;
+			}
+
+			if (kind == UnscaledImm) {
+				inst.op = (load) ? A64_LDUR_FP : A64_STUR_FP;
+			} else {
+				inst.op = (load) ? A64_LDR_FP : A64_STR_FP;
+			}
+			inst.flags = set_mem_extend(inst.flags, size);
+		} else {
+			Size size = top2;
+			bool sign_extend = false;
+			bool w32 = (size != SZ_X);
+
+			switch (opc) {
+			case 0b00: load = false; sign_extend = 0; break; // store
+			case 0b01: load = true;  sign_extend = 0; break; // load
+			case 0b10: // load, sign-extend to 64 bit
+				if (size == SZ_X) {
+					// XXX PRFM -- prefetch memory
+					return errinst("loads_and_stores/Register: PRFM not yet implemented");
+				}
+				load = true;
+				sign_extend = 1;
+				w32 = false;
+				break;
+			case 0b11: // load, sign-extend to 32 bit
+				// 32-bit sign-extend to 32-bit does not make sense.
+				// 64-bit sign-extend to 32-bit is similarly nonsensical.
+				if (size >= SZ_W) {
+					return errinst("loads_and_stores/Register: bad instruction");
+				}
+				load = true;
+				sign_extend = 1;
+				break;
+			}
+
+			if (kind == UnscaledImm) {
+				inst.op = (load) ? A64_LDUR : A64_STUR;
+			} else {
+				inst.op = (load) ? A64_LDR : A64_STR;
+			}
+			if (w32) {
+				inst.flags |= W32;
+			}
+			inst.flags = set_mem_extend(inst.flags, (sign_extend<<2) | size);
+		}
+
+		AddrMode mode = get_addrmode(inst.flags);
+		switch (mode) {
+		case AM_POST: // fall through
+		case AM_PRE: {
+			uint imm9 = (binst >> 12) & 0b111111111;
+			inst.offset = sext(imm9, 9); // unscaled
+			break;
+		}
+		case AM_OFF_IMM: {
+			if (kind == UnscaledImm) {
+				u32 imm9 = (binst >> 12) & 0b111111111;
+				inst.offset = sext(imm9, 9);
+				break;
+			}
+
+			// Normal LDR/STR scaled, unsigned immediate offset.
+			uint imm12 = (binst >> 10) & 0b111111111111;
+			inst.offset = scale * imm12;
+			break;
+		}
+		case AM_OFF_REG: { // shifted register
+			bool S = (binst >> 12) & 1;
+			inst.shift.type = SH_LSL;
+			inst.shift.amount = (S) ? shift : 0;
+			inst.ldst.rm = regRm(binst);
+			break;
+		}
+		case AM_OFF_EXT: { // extended register
+			bool S = (binst >> 12) & 1;
+			inst.extend.type = (binst >> 13) & 0b111; // option(3)
+			inst.extend.lsl = (S) ? shift : 0;
+			inst.ldst.rm = regRm(binst);
+			break;
+		}
+		}
+
+		inst.ldst.rt = regRd(binst);
+		inst.ldst.rn = regRnSP(binst); // stack pointer can be base register
+		break;
+	}
+	case Unprivileged:
+		return errinst("loads_and_stores: Unprivileged instructions not supported");
+	case Atomic: {
+		u8 size = top2;
+		u8 o3opc = (binst >> 12) & 0b1111; // o3 + opc
+
+		bool acquire = (binst >> 23) & 1;
+		bool release = (binst >> 22) & 1;
+
+		// All < 64-bit accsizes store into the Wx registers; there are no
+		// zero-extension or sign-extension options.
+		if (size != SZ_X)
+			inst.flags |= W32;
+
+		switch (o3opc) {
+		case 0b0000: inst.op = A64_LDADD;  break;
+		case 0b0001: inst.op = A64_LDCLR;  break;
+		case 0b0010: inst.op = A64_LDEOR;  break;
+		case 0b0011: inst.op = A64_LDSET;  break;
+		case 0b0100: inst.op = A64_LDSMAX; break;
+		case 0b0101: inst.op = A64_LDSMIN; break;
+		case 0b0110: inst.op = A64_LDUMAX; break;
+		case 0b0111: inst.op = A64_LDUMIN; break;
+		case 0b1000: inst.op = A64_SWP;    break;
+		case 0b1100:
+			// Load-AcquirePC Register -- ought to be in the Exclusive group,
+			// but presumably did not fit in.
+			inst.op = A64_LDR;
+			inst.ldst_order.load = MO_ACQUIRE_PC;
+			break;
+		}
+
+		inst.flags = set_mem_extend(inst.flags, size);
+		inst.ldst_order.load = (acquire) ? MO_ACQUIRE : MO_NONE;
+		inst.ldst_order.store = (release) ? MO_RELEASE : MO_NONE;
+		inst.ldst.rt = regRd(binst);
+		inst.ldst.rn = regRnSP(binst); // stack pointer can be base register
+		inst.ldst.rs = regRm(binst);
+		break;
+	}
+	case PAC:
+		return errinst("loads_and_stores: Pointer Auth instructions not supported");
+	}
+
+	return inst;
+}
+
 // decode decodes n binary instructions from the input buffer and
 // puts them in the output buffer, which must have space for n Insts.
 int decode(u32 *in, uint n, Inst *out) {
@@ -1435,7 +2006,7 @@ int decode(u32 *in, uint n, Inst *out) {
 		case 0b0110:
 		case 0b1100:
 		case 0b1110: // x1x0
-			out[i] = errinst("Loads & stores not supported");
+			out[i] = loads_and_stores(binst);
 			break;
 		case 0b0101:
 		case 0b1101: // x101
