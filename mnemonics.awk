@@ -1,6 +1,6 @@
 #!/usr/bin/awk -f
 #
-# mnemonics.awk <decode.c> -- print mnemonics string table for A64 Ops.
+# mnemonics.awk <farmdec.h> -- print mnemonics string table for A64 Ops.
 
 BEGIN {
 	print "char *mnemonics[] = {"
