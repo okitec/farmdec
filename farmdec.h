@@ -508,7 +508,7 @@ struct Inst {
 		} ccmp;
 		struct {
 			s32 offset; // 14-bit jump offset
-			u32 b5b40;  // b5:b40 field - bit number to be tested
+			u32 bit;    // b5:b40 field -- bit number to be tested
 		} tbz;
 		struct {
 			u32 type;   // enum Shift (not used because sizeof(enum) is impl-defined)

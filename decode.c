@@ -521,8 +521,8 @@ static Inst branches(u32 binst) {
 		inst.tbz.offset = sext(((binst >> 5) & 0b11111111111111) << 2, 14+2); // imm14 * 4
 		u32 b40 = (binst >> 19) & 0b11111;
 		u32 b5 = binst & (1<<31);
-		inst.tbz.b5b40 = (b5 >> (31-5)) | b40; // b5:b40
-		inst.rn = binst & 0b11111;             // Rt; not modified → Inst.rn, not .rd
+		inst.tbz.bit = (b5 >> (31-5)) | b40; // b5:b40
+		inst.rn = binst & 0b11111;           // Rt; not modified → Inst.rn, not .rd
 		break;
 	}
 	}
