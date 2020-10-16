@@ -460,7 +460,14 @@ static Inst branches(u32 binst) {
 		break;
 
 	case System: {
+		// There is a very long op1 field where most of the values are the same
+		// between the groups, forming a sort of prefix tree. Using the proper
+		// order, we can differentiate the groups at the bits where the prefix
+		// tree has branches.
 		bool exc = !((binst >> 24) & 1); // exception → zero bit
+		bool msr = (binst >> 20) & 1;    // system register move (MSR, MRS)
+		bool sys = (binst >> 19) & 1;    // system instruction (SYS, SYSL)
+		bool pstate = (binst >> 14) & 1; // PSTATE (MSR (imm),CFINV)
 
 		if (exc) {
 			u8 opcLL = (((binst >> 21) & 0b111) << 2) | (binst & 0b11); // opc(3):LL(2)
@@ -474,13 +481,90 @@ static Inst branches(u32 binst) {
 			case 0b10110: inst.op = A64_DCPS2; break;
 			case 0b10111: inst.op = A64_DCPS3; break;
 			default:
-				return errinst("branches/System/exceptions: bad instruction");
+				return errinst("branches/Exceptions: bad instruction");
 			}
 
 			inst.imm = (binst >> 5) & 0xFFFF; // imm16
 			break;
 		}
-		return errinst("System instructions not supported"); // XXX _some_ should be decoded. barriers, CFINV
+
+		if (msr) {
+			bool load = (binst >> 21) & 1;
+			bool o0 = (binst >> 19) & 1;
+			u8 o0val = (o0) ? 3 : 2;
+
+			inst.op = (load) ? A64_MRS : A64_MSR_REG;
+			inst.imm = (o0val << 14) | ((binst >> 5) & 0b11111111111111); // <o0val>:op1(3):CRn(4):CRm(4):op2(3)
+			inst.ldst.rt = regRd(binst);
+			break;
+		}
+
+		if (sys) {
+			bool load = (binst >> 21) & 1;
+			inst.op = (load) ? A64_SYSL : A64_SYS;
+			inst.sys.op1 = (binst >> 16) & 0b111;
+			inst.sys.op2 = (binst >> 5) & 0b111;
+			inst.sys.crn = (binst >> 12) & 0b1111;
+			inst.sys.crm = (binst >> 8) & 0b1111;
+			inst.ldst.rt = regRd(binst);
+			break;
+		}
+
+		if (pstate) {
+			u8 op1 = (binst >> 16) & 0b111;
+			u8 op2 = (binst >> 5) & 0b111;
+			u8 crm = (binst >> 8) & 0b1111; // immediate
+
+			switch ((op1 << 3) | op2) { // op1(3):op2(3)
+			case 0b000000: inst.op = A64_CFINV;  return inst;
+			case 0b000001: inst.op = A64_XAFlag; return inst;
+			case 0b000010: inst.op = A64_AXFlag; return inst;
+			case 0b000011: inst.msr_imm.psfld = PSF_UAO;     break;
+			case 0b000100: inst.msr_imm.psfld = PSF_PAN;     break;
+			case 0b000101: inst.msr_imm.psfld = PSF_SPSel;   break;
+			case 0b011001: inst.msr_imm.psfld = PSF_SSBS;    break;
+			case 0b011010: inst.msr_imm.psfld = PSF_DIT;     break;
+			case 0b011110: inst.msr_imm.psfld = PSF_DAIFSet; break;
+			case 0b011111: inst.msr_imm.psfld = PSF_DAIFClr; break;
+			default:
+				return errinst("branches/PSTATE: unknown MSR_IMM pstatefield");
+			}
+			inst.op = A64_MSR_IMM;
+			inst.msr_imm.imm = crm;
+			break;
+		}
+
+		// Longest prefix → Barriers, but we need to check the prefix!
+		u16 op1 = (binst >> 12) & 0b11111111111111;
+		if (op1 != 0b01000000110011)
+			return UNKNOWN_INST;
+
+		u8 op2 = (binst >> 5) & 0b111;
+		u8 crm = (binst >> 8) & 0b1111;
+		switch (op2) {
+		case 0b010: inst.op = A64_CLREX; inst.imm = crm; break;
+		case 0b101: inst.op = A64_DMB; inst.imm = crm; break;
+		case 0b110: inst.op = A64_ISB; inst.imm = crm; break;
+		case 0b111:
+			if (regRd(binst) != ZERO_REG)
+				return errinst("branches/Barriers: bad instruction");
+			inst.op = A64_SB;
+			// CRm is always 0.
+			break;
+		case 0b100:
+			switch (crm) {
+			case 0b0000: inst.op = A64_SSBB; break;
+			case 0b0100: inst.op = A64_PSSBB; break;
+			default:
+				inst.op = A64_DSB;
+				inst.imm = crm;
+				break;
+			}
+			break;
+		default:
+			return UNKNOWN_INST;
+		}
+		break;
 	}
 	case UncondBranchReg: {
 		u32 op = (binst >> 21) & 0b11;
@@ -1549,7 +1633,7 @@ int main(int argc, char **argv) {
 		switch (inst.op) {
 		case A64_UNKNOWN: printf("%04x ???\n", 4*i);                      continue;
 		case A64_ERROR:   printf("%04x error \"%s\"\n", 4*i, inst.error); continue;
-		case A64_UDF:     printf("%04x udf\n", 4*i);                       continue;
+		case A64_UDF:     printf("%04x udf\n", 4*i);                      continue;
 		default:
 			break; // normal instruction
 		}

@@ -3,8 +3,9 @@ typedef enum Cond Cond;
 typedef enum ExtendType ExtendType;
 typedef enum FPSize  FPSize;
 typedef enum MemOrdering MemOrdering;
-typedef enum Op          Op;
-typedef enum Shift       Shift;
+typedef enum Op Op;
+typedef enum PstateField PstateField; // for MSR_IMM
+typedef enum Shift Shift;
 typedef enum Size Size;
 typedef enum VectorArrangement VectorArrangement;
 typedef struct Inst Inst;
@@ -104,6 +105,31 @@ enum Op {
 	A64_DCPS2,
 	A64_DCPS3,
 
+	// Hints -- OMITTED
+
+	// Barriers
+	A64_CLREX,
+	A64_DMB,
+	A64_ISB,
+	A64_SB,
+	A64_DSB,
+	A64_SSBB,
+	A64_PSSBB,
+
+	// PSTATE
+	A64_MSR_IMM, // MSR <pstatefield>, #imm -- Inst.msr_imm
+	A64_CFINV,
+	A64_XAFlag,  // irrelevant
+	A64_AXFlag,  // ------
+
+	// System instructions -- Inst.ldst.rt := Xt
+	A64_SYS,  // SYS #op1, Cn, Cm, #op2(, Xt)
+	A64_SYSL, // SYSL Xt, #op1, Cn, Cm, #op2
+
+	// System register move -- Inst.ldst.rt := Xt; Inst.imm := sysreg
+	A64_MSR_REG, // MSR <sysreg>, Xt
+	A64_MRS,     // MRS Xt, <sysreg>
+
 	// Unconditional branch (register)
 	A64_BR,
 	A64_BLR,
@@ -117,7 +143,7 @@ enum Op {
 	A64_CBZ,
 	A64_CBNZ,
 
-	// Test and branch (immediate)
+	// Test and branch (immediate) -- Inst.tbz
 	A64_TBZ,
 	A64_TBNZ,
 
@@ -341,8 +367,6 @@ enum Cond {
 	COND_NV = 0b1111,  // Always true (not "never" as in A32!)
 };
 
-
-
 enum Shift {
 	SH_LSL = 0b00,
 	SH_LSR = 0b01,
@@ -434,6 +458,17 @@ enum ExtendType {
 	SXTX = (1 << 2) | SZ_X,
 };
 
+// PstateField: encodes which PSTATE bits the MSR_IMM instruction modifies.
+enum PstateField {
+	PSF_UAO,
+	PSF_PAN,
+	PSF_SPSel,
+	PSF_SSBS,
+	PSF_DIT,
+	PSF_DAIFSet,
+	PSF_DAIFClr,
+};
+
 // Register 31's interpretation is up to the instruction. Many interpret it as the
 // zero register ZR/WZR. Reading to it yields a zero, writing discards the result.
 // Other instructions interpret it as the stack pointer SP.
@@ -506,6 +541,16 @@ struct Inst {
 			u32 nzcv;
 			u32 imm5;
 		} ccmp;
+		struct {
+			u16 op1;
+			u16 op2;
+			u16 crn;
+			u16 crm;
+		} sys; // We don't decode SYS and SYSL further
+		struct {
+			u32 psfld;  // enum PstateField
+			u32 imm;    // imm(4)
+		} msr_imm;
 		struct {
 			s32 offset; // 14-bit jump offset
 			u32 bit;    // b5:b40 field -- bit number to be tested
