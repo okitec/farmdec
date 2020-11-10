@@ -46,8 +46,10 @@ enum Op {
 
 	// Add/subtract (immediate)
 	A64_ADD_IMM,
+	A64_CMN_IMM,
 	A64_MOV_SP, // MOV from/to SP -- ADD (imm) alias (predicate: shift == 0 && imm12 == 0 && (Rd == SP || Rn == SP))
 	A64_SUB_IMM,
+	A64_CMP_IMM,
 
 	// Logical (immediate)
 	A64_AND_IMM,

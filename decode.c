@@ -199,10 +199,19 @@ static Inst data_proc_imm(u32 binst) {
 		bool shift_by_12 = (binst & (1 << 22)) > 0;
 		inst.imm = (shift_by_12) ? unshifted_imm << 12 : unshifted_imm;
 
-		inst.rd = regRdSP(binst);
+		// ADDS/SUBS and thus CMN/CMP interpret R31 as the zero register,
+		// while normal ADD and SUB treat it as the stack pointer.
+		inst.rd = (inst.flags & SET_FLAGS) ? regRd(binst) : regRdSP(binst);
 		inst.rn = regRnSP(binst);
 
-		if (inst.op == A64_ADD_IMM && !shift_by_12 && unshifted_imm == 0 &&
+		if (inst.rd == ZERO_REG && (inst.flags & SET_FLAGS)) {
+			switch (inst.op) {
+			case A64_ADD_IMM: inst.op = A64_CMN_IMM; break;
+			case A64_SUB_IMM: inst.op = A64_CMP_IMM; break;
+			default:
+				break; // impossible; shuts up warning
+			}
+		} else if (inst.op == A64_ADD_IMM && !shift_by_12 && unshifted_imm == 0 &&
 			((inst.rd == STACK_POINTER) || (inst.rn == STACK_POINTER))) {
 			inst.op = A64_MOV_SP;
 		}
@@ -226,7 +235,9 @@ static Inst data_proc_imm(u32 binst) {
 		u64 N = (inst.w32) ? 0 : binst & (1 << 22); // N is MSB of imm for 64-bit variants
 		inst.imm = N >> (22-6-6) | imms >> (10-6) | immr >> 16;
 
-		inst.rd = regRdSP(binst);
+		// ANDS and by extension TST interpret R31 as the zero register, while
+		// regular immediate AND interprets it as the stack pointer.
+		inst.rd = (inst.flags & SET_FLAGS) ? regRd(binst) : regRdSP(binst);
 		inst.rn = regRn(binst);
 		break;
 	}
@@ -818,8 +829,9 @@ static Inst data_proc_reg(u32 binst) {
 		inst.extend.type = (binst >> 13) & 0b111; // three bits: sign(1):size(2)
 		inst.extend.lsl = (binst >> 10) & 0b111;  // optional LSL amount
 
-		// Unlike AddSubShifted, R31 is intepreted as the Stack Pointer.
-		inst.rd = regRdSP(binst);
+		// Unlike AddSubShifted, R31 is intepreted as the Stack Pointer,
+		// unless it's ADDS/SUBS/CMN/CMP.
+		inst.rd = (inst.flags & SET_FLAGS) ? regRd(binst) : regRdSP(binst);
 		inst.rn = regRnSP(binst);
 		inst.rm = regRm(binst);
 

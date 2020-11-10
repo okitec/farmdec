@@ -7,8 +7,10 @@ pc_rel_addr:
 addsub:
 	add sp, x4, #48
 	adds x0, x1, #100, lsl #12
+	cmn x3, #42
 	sub w0, w1, #20
 	subs x23, x24, #123
+	cmp x3, #16
 
 logical:
 	and x0, x1, #0xff
