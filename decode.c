@@ -602,7 +602,7 @@ static Inst branches(u32 binst) {
 		bool zero = (binst & (1 << 24)) == 0;
 		inst.op = (zero) ? A64_CBZ : A64_CBNZ;
 
-		inst.offset = 4 * sext(((binst >> 5) & 0b1111111111111111111) << 2, 19+2); // imm19 * 4
+		inst.offset = sext(((binst >> 5) & 0b1111111111111111111) << 2, 19+2); // imm19 * 4
 		inst.rn = binst & 0b11111; // Rt; not modified → Inst.rn, not .rd
 		break;
 	}
@@ -740,6 +740,7 @@ static Inst data_proc_reg(u32 binst) {
 		case 0b000: inst.op = A64_RBIT; break;
 		case 0b001: inst.op = A64_REV16; break;
 		case 0b010: inst.op = (inst.flags & W32) ? A64_REV : A64_REV32; break;
+		case 0b011: inst.op = A64_REV; break;
 		case 0b100: inst.op = A64_CLZ; break;
 		case 0b101: inst.op = A64_CLS; break;
 		}
@@ -849,7 +850,7 @@ static Inst data_proc_reg(u32 binst) {
 		if (top3 & 0b001)
 			inst.flags |= SET_FLAGS;
 
-		switch ((binst >> 9) & 0b111111) {
+		switch ((binst >> 10) & 0b111111) {
 		case 0b000000: {
 			bool sub = top3 & 0b010;
 			inst.op = (sub) ? A64_SBC : A64_ADC;
@@ -886,21 +887,27 @@ static Inst data_proc_reg(u32 binst) {
 		bool positive = (top3 & 0b010) == 0;
 		bool immediate = (binst >> 11) & 1;
 		if (positive) {
-			inst.op = (immediate) ? A64_CCMP_IMM : A64_CCMP_REG;
-		} else {
 			inst.op = (immediate) ? A64_CCMN_IMM : A64_CCMN_REG;
+		} else {
+			inst.op = (immediate) ? A64_CCMP_IMM : A64_CCMP_REG;
 		}
 
 		inst.flags |= SET_FLAGS;
 		inst.flags = set_cond(inst.flags, (binst >> 12) & 0b1111);
 		inst.ccmp.nzcv = binst & 0b1111;
-		inst.ccmp.imm5 = (immediate) ? (binst >> 16) & 0b11111 : 0;
+
+		inst.rn = regRn(binst);
+		if (immediate) {
+			inst.ccmp.imm5 = (binst >> 16) & 0b11111;
+		} else {
+			inst.rm = regRm(binst);
+		}
 		break;
 	}
 	case CondSelect: {
 		// Combine the op bit (30) and the op2 field (11-10) to fully
 		// determine the selection opcode.
-		u32 op = (((binst >> 30) & 1) << 1) | ((binst >> 10) & 0b11);
+		u32 op = (((binst >> 30) & 1) << 2) | ((binst >> 10) & 0b11);
 		switch (op) {
 		case 0b000: inst.op = A64_CSEL; break;
 		case 0b001: inst.op = A64_CSINC; break;
@@ -928,16 +935,19 @@ static Inst data_proc_reg(u32 binst) {
 		} else if (inst.rm == inst.rn && inst.op == A64_CSINC) {
 			inst.op = A64_CINC;
 			inst.flags = invert_cond(inst.flags);
+		} else if (inst.rm == inst.rn && inst.op == A64_CSINV) {
+			inst.op = A64_CINV;
+			inst.flags = invert_cond(inst.flags);
 		}
 		break;
 	}
 	case DataProc3: {
 		bool sub = (binst >> 15) & 1;
 		switch ((binst >> 21) & 0b111) {
-		case 0b000: inst.op = (sub) ? A64_MADD : A64_MSUB; break;
-		case 0b001: inst.op = (sub) ? A64_SMADDL : A64_SMSUBL; break;
+		case 0b000: inst.op = (sub) ? A64_MSUB : A64_MADD; break;
+		case 0b001: inst.op = (sub) ? A64_SMSUBL : A64_SMADDL; break;
 		case 0b010: inst.op = A64_SMULH; break;
-		case 0b101: inst.op = (sub) ? A64_UMADDL : A64_UMSUBL; break;
+		case 0b101: inst.op = (sub) ? A64_UMSUBL : A64_UMADDL; break;
 		case 0b110: inst.op = A64_UMULH; break;
 		default:
 			return errinst("data_proc_reg/DataProc3: invalid opcode");

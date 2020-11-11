@@ -227,6 +227,7 @@ enum Op {
 	A64_CINC,  // CSINC alias (cond := invert(cond), predicate: Rm == Rn != ZR)
 	A64_CSET,  // CSINC alias (cond := invert(cond), predicate: Rm == Rn == ZR)
 	A64_CSINV,
+	A64_CINV,  // CSINV alias (cond := invert(cond), predicate: Rm == Rn != ZR)
 	A64_CSETM, // CSINV alias (cond := invert(cond), predicate: Rm == Rn == ZR)
 	A64_CSNEG,
 	A64_CNEG,  // CSNEG alias (cond := invert(cond), predicate: Rm == Rn)

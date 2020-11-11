@@ -120,6 +120,7 @@ char *mnemonics[] = {
 	"cinc",
 	"cset",
 	"csinv",
+	"cinv",
 	"csetm",
 	"csneg",
 	"cneg",
