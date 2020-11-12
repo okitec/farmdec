@@ -105,7 +105,9 @@ static s64 sext(u64 x, u8 b) {
 	return (((s64)x) ^ mask) - mask;
 }
 
+// Helpers for data_proc_imm
 static Inst find_bfm_alias(Op op, bool w32, Reg rd, Reg rn, u8 immr, u8 imms);
+static u64 decode_bitmask(u8 immN, u8 imms, u8 immr, bool w32);
 
 static Inst data_proc_imm(u32 binst) {
 	Inst inst = UNKNOWN_INST;
@@ -228,12 +230,10 @@ static Inst data_proc_imm(u32 binst) {
 			break;
 		}
 
-		// There's a bit swap: the bits in the instruction are N, immr, imms,
-		// from which the immediate imm = N:imms:immr is created.
-		u64 immr = binst & (0b111111 << 16); // low 6 bit
-		u64 imms = binst & (0b111111 << 10); // high 6 bit
-		u64 N = (inst.w32) ? 0 : binst & (1 << 22); // N is MSB of imm for 64-bit variants
-		inst.imm = N >> (22-6-6) | imms >> (10-6) | immr >> 16;
+		u8 immr = (binst >> 16) & 0b111111;
+		u8 imms = (binst >> 10) & 0b111111;
+		u8 N = (inst.flags & W32) ? 0 : (binst >> 22) & 1; // N is part of imm for 64-bit variants
+		inst.imm = decode_bitmask(N, imms, immr, inst.flags & W32);
 
 		// ANDS and by extension TST interpret R31 as the zero register, while
 		// regular immediate AND interprets it as the stack pointer.
@@ -315,6 +315,80 @@ static Inst data_proc_imm(u32 binst) {
 	}
 
 	return inst;
+}
+
+// Returns the 0-based index of the highest bit. Should be compiled down
+// to a single native instruction.
+static int highest_bit(unsigned int x) {
+#if defined __has_builtin && __has_builtin (__builtin_clz)
+	// 31 - #leading zeroes
+	// or 63 - #leading zeroes
+	return (8*sizeof(x)-1) - __builtin_clz(x); // GCC and Clang.
+#else
+	// 43210  n
+	// -----  -
+	// 01001  0
+	//  0100  1
+	//   010  2
+	//    01  3 <- our 0-based result
+	int n = 0;
+	do {
+		x >>= 1;
+		n++;
+	} while (x != 1);
+	return n;
+#endif
+}
+
+// Rotate the len-bit number x n places to the right. Based on the first
+// example at https://en.wikipedia.org/wiki/Bitwise_operation#Circular_shifts
+// (except turned around, to make it rotare right).
+static u64 ror(u64 x, uint n, uint len) {
+	u64 raw = ((x >> n) | (x << (len - n)));
+	if (len == 64)
+		return raw;
+	return raw & ((1uL<<len) - 1); // truncate left side to len bits
+}
+
+// Implementation of the A64 pseudocode function DecodeBitMasks (pp. 1683-1684).
+//
+// The logical immediate instructions encode 32-bit or 64-bit masks using merely
+// 12 or 13 bits. We want the decoded mask in our Inst.imm field. We only need
+// the "wmask" of DecodeBitMasks, so return only that.
+static u64 decode_bitmask(u8 immN, u8 imms, u8 immr, bool w32) {
+	uint M = (w32) ? 32 : 64;
+
+	// Guarantee it's only the number of bits in the pseudocode signature.
+	immN &= 1;
+	imms &= 0b111111;
+	immr &= 0b111111;
+
+	// length of bitmask (1..6)
+	uint len = highest_bit((immN << 6) | ((~imms)&0b111111));
+
+	// 1..6 consecutive ones, basis of pattern
+	uint levels = 0;
+	for (uint i = 0; i < len; i++)
+		levels = (levels << 1) | 1;
+
+	uint S = imms & levels;
+	uint R = immr & levels;
+	uint esize = 1 << len;     // 2, 4, 8, 16, 32, 64
+
+	// welem: pattern of 1s then zero-extended to esize
+	// e.g. esize = 8; S+1 = 4 → welem = 0b00001111
+	u64 welem = 0;
+	for (uint i = 0; i < S+1; i++)
+		welem = (welem << 1) | 1;
+
+	// wmask = Replicate(ROR(welem, R));
+	welem = ror(welem, R, esize);
+	u64 wmask = 0;
+	for (uint i = 0; i < M; i += esize) {
+		wmask = (wmask << esize) | welem;
+	}
+
+	return wmask;
 }
 
 // There is no BFM, SBFM or UBFM instruction without a more specific alias.
