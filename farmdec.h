@@ -618,16 +618,16 @@ struct Inst {
 } // namespace farmdec
 
 extern "C" {
-	farmdec::Cond get_cond(u8 flags);
-	farmdec::AddrMode get_addrmode(u8 flags);
-	farmdec::ExtendType get_mem_extend(u8 flags);
-	int decode(u32 *in, uint n, farmdec::Inst *out);
+	farmdec::Cond fad_get_cond(u8 flags);
+	farmdec::AddrMode fad_get_addrmode(u8 flags);
+	farmdec::ExtendType fad_get_mem_extend(u8 flags);
+	int fad_decode(u32 *in, uint n, farmdec::Inst *out);
 }
 #else
-	Cond get_cond(u8 flags);
-	AddrMode get_addrmode(u8 flags);
-	ExtendType get_mem_extend(u8 flags);
-	int decode(u32 *in, uint n, Inst *out);
+	Cond fad_get_cond(u8 flags);
+	AddrMode fad_get_addrmode(u8 flags);
+	ExtendType fad_get_mem_extend(u8 flags);
+	int fad_decode(u32 *in, uint n, Inst *out);
 #endif
 
 #ifndef FARMDEC_INTERNAL

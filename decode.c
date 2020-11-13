@@ -16,7 +16,7 @@ static Inst errinst(char *err) {
 	return inst;
 }
 
-Cond get_cond(u8 flags) {
+Cond fad_get_cond(u8 flags) {
 	return (flags >> 4) & 0b1111;
 }
 
@@ -27,12 +27,12 @@ static u8 set_cond(u8 flags, Cond cond) {
 }
 
 static u8 invert_cond(u8 flags) {
-	Cond cond = get_cond(flags);
+	Cond cond = fad_get_cond(flags);
 	return set_cond(flags, cond ^ 0b001); // invert LSB
 }
 
 // Addressing mode, for Loads and Stores.
-AddrMode get_addrmode(u8 flags) {
+AddrMode fad_get_addrmode(u8 flags) {
 	return (AddrMode)((flags >> 5) & 0b111);
 }
 
@@ -42,7 +42,7 @@ static u8 set_addrmode(u8 flags, AddrMode mode) {
 
 // How much memory to load/store (access size) and whether to sign-
 // or zero-extend the value.
-ExtendType get_mem_extend(u8 flags) {
+ExtendType fad_get_mem_extend(u8 flags) {
 	return (ExtendType)((flags >> 2) & 0b111);
 }
 
@@ -1208,7 +1208,7 @@ static Inst loads_and_stores(u32 binst) {
 
 		// Post-indexed addrmode, either register-based or an immediate that
 		// depends on the number of bytes read/written.
-		if (get_addrmode(inst.flags) == AM_POST) {
+		if (fad_get_addrmode(inst.flags) == AM_POST) {
 			inst.ldst.rm = regRm(binst);
 			if (inst.ldst.rm == ZERO_REG) {
 				switch (Q) {
@@ -1289,7 +1289,7 @@ static Inst loads_and_stores(u32 binst) {
 
 		// Post-indexed addrmode, either register-based or an immediate that
 		// depends on the number of bytes read/written.
-		if (get_addrmode(inst.flags) == AM_POST) {
+		if (fad_get_addrmode(inst.flags) == AM_POST) {
 			inst.ldst.rm = regRm(binst);
 			if (inst.ldst.rm == ZERO_REG) {
 				switch (size) {
@@ -1532,7 +1532,7 @@ static Inst loads_and_stores(u32 binst) {
 			inst.flags = set_mem_extend(inst.flags, (sign_extend<<2) | size);
 		}
 
-		AddrMode mode = get_addrmode(inst.flags);
+		AddrMode mode = fad_get_addrmode(inst.flags);
 		switch (mode) {
 		default:
 			return UNKNOWN_INST;
@@ -1624,7 +1624,7 @@ static Inst loads_and_stores(u32 binst) {
 
 // decode decodes n binary instructions from the input buffer and
 // puts them in the output buffer, which must have space for n Insts.
-int decode(u32 *in, uint n, Inst *out) {
+int fad_decode(u32 *in, uint n, Inst *out) {
 	uint i;
 	for (i = 0; i < n; i++) {
 		u32 binst = in[i];

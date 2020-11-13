@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
 	printf("#inst:     %7ld\nibuf size: %6.1fM\nobuf size: %6.1fM\ntotal:     %6.1fM\n",
 		ninst, ibufM, obufM, totalM);
 
-	decode(ibuf, ninst, obuf);
+	fad_decode(ibuf, ninst, obuf);
 
 	for (uint i = 0; i < ninst; i++) {
 		Inst inst = obuf[i];
@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
 			4*i, mnemonics[inst.op], flagsch,
 			regch, inst.rd, regch, inst.rn, regch, inst.rm,
 			inst.imm, inst.bfm.lsb, inst.bfm.width, inst.offset, inst.flags&W32, inst.flags&SET_FLAGS,
-			get_mem_extend(inst.flags), get_addrmode(inst.flags), get_cond(inst.flags));
+			fad_get_mem_extend(inst.flags), fad_get_addrmode(inst.flags), fad_get_cond(inst.flags));
 	}
 
 	return 0;
