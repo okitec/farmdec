@@ -1,0 +1,4 @@
+builddir/
+*.o
+a.out
+log.test

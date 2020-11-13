@@ -1,7 +1,35 @@
+// For usage in C or C++, see main.c and example.cpp.
+// <stdint.h> must be have been included.
+
+// Do not pollute typedef space when accessing from the outside.
+// Just replace the types with the stdint.h ones.
+#ifdef FARMDEC_INTERNAL
+typedef unsigned int uint;
+typedef uint8_t   u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+typedef int16_t  s16;
+typedef int32_t  s32;
+typedef int64_t  s64;
+#else
+#define uint unsigned int
+#define u8 uint8_t
+#define u16 uint16_t
+#define u32 uint32_t
+#define u64 uint64_t
+#define s16 int16_t
+#define s32 int32_t
+#define s64 int64_t
+#endif
+
+// C++: put everything into namespace farmdec. No need for these typedefs
+// there, since enum Foo can be accessed as "Foo" anyway, unlike C.
+#ifndef __cplusplus
 typedef enum AddrMode AddrMode;
 typedef enum Cond Cond;
 typedef enum ExtendType ExtendType;
-typedef enum FPSize  FPSize;
+typedef enum FPSize FPSize;
 typedef enum MemOrdering MemOrdering;
 typedef enum Op Op;
 typedef enum PstateField PstateField; // for MSR_IMM
@@ -9,11 +37,11 @@ typedef enum Shift Shift;
 typedef enum Size Size;
 typedef enum VectorArrangement VectorArrangement;
 typedef struct Inst Inst;
-typedef u8 Reg;
+#else
+namespace farmdec {
+#endif
 
-Cond get_cond(u8 flags);
-AddrMode get_addrmode(u8 flags);
-ExtendType get_mem_extend(u8 flags);
+typedef u8 Reg;
 
 // Opcodes ordered and grouped according to the Top-level Encodings
 // of the A64 Instruction Set Architecture (ARMv8-A profile) document,
@@ -585,3 +613,30 @@ struct Inst {
 		} simd_ldst; // LD1..4, ST1..4
 	};
 };
+
+#ifdef __cplusplus
+} // namespace farmdec
+
+extern "C" {
+	farmdec::Cond get_cond(u8 flags);
+	farmdec::AddrMode get_addrmode(u8 flags);
+	farmdec::ExtendType get_mem_extend(u8 flags);
+	int decode(u32 *in, uint n, farmdec::Inst *out);
+}
+#else
+	Cond get_cond(u8 flags);
+	AddrMode get_addrmode(u8 flags);
+	ExtendType get_mem_extend(u8 flags);
+	int decode(u32 *in, uint n, Inst *out);
+#endif
+
+#ifndef FARMDEC_INTERNAL
+#undef uint
+#undef u8
+#undef u16
+#undef u32
+#undef u64
+#undef s16
+#undef s32
+#undef s64
+#endif
