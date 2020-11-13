@@ -1,0 +1,20 @@
+#!/bin/sh
+#
+# tt -- "test this".
+
+./mnemonics.awk <farmdec.h >mnemonics.h
+
+if ! gcc -c -O1 -Wall decode.c; then
+	exit 1
+fi
+
+if ! ar rcs libfarmdec.a decode.o; then
+	exit 2
+fi
+
+if gcc -O1 -Wall main.c -L. -l:libfarmdec.a; then
+	./elf2int.sh samples/data_proc_imm.o | ./a.out > log.test
+fi
+
+rm decode.o
+rm libfarmdec.a
