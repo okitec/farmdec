@@ -538,21 +538,19 @@ struct Inst {
 	//     LD1..4, ST1..4, etc., need the vector arrangement, like many SIMD operations.
 	u8 flags;
 
+	// There are various names and roles for the 1-3 main registers.
+	// For data processing, there's usually Rd, Rn, Rm; loads/stores
+	// use Rt, Rn (base), Rm (offset) and sometimes Rt2 (second reg
+	// for pairwise load/store).
 	union {
-		struct {
-			Reg rd;   // destination register - Rd
-			Reg rn;   // first (or only) operand, read-only - Rn, Rt (CBZ)
-			Reg rm;   // second operand, read-only - Rm
-		}; // XXX according to the C standard, these three share their memory!
-		struct {
-			Reg rt;  // destination of load, source of store
-			Reg rn;  // base addressing register (Xn)
-			union {
-				Reg rt2; // second destination/source register for LDP, STP and variants (e.g. LDXP)
-				Reg rm;  // index register for AM_OFF_REG, AM_OFF_EXT
-				Reg rs;  // source register for atomic operations
-			};
-		} ldst;
+		Reg rd;  // destination register - Rd
+		Reg rt;  // destination of load, source of store - Rt (target)
+	};
+	Reg rn;          // first (or only) operand, read-only - Rn, Rt (CBZ); base addressing register (Xn)
+	union {
+		Reg rm;  // second operand, read-only - Rm; index register for AM_OFF_REG, AM_OFF_EXT
+		Reg rt2; // second destination/source register for LDP, STP and variants (e.g. LDXP)
+		Reg rs;  // status register for atomic operations
 	};
 	union {
 		u64 imm;     // single immediate

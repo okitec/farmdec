@@ -570,7 +570,7 @@ static Inst branches(u32 binst) {
 
 			inst.op = (load) ? A64_MRS : A64_MSR_REG;
 			inst.imm = (o0val << 14) | ((binst >> 5) & 0b11111111111111); // <o0val>:op1(3):CRn(4):CRm(4):op2(3)
-			inst.ldst.rt = regRd(binst);
+			inst.rt = regRd(binst);
 			break;
 		}
 
@@ -581,7 +581,7 @@ static Inst branches(u32 binst) {
 			inst.sys.op2 = (binst >> 5) & 0b111;
 			inst.sys.crn = (binst >> 12) & 0b1111;
 			inst.sys.crm = (binst >> 8) & 0b1111;
-			inst.ldst.rt = regRd(binst);
+			inst.rt = regRd(binst);
 			break;
 		}
 
@@ -1203,14 +1203,14 @@ static Inst loads_and_stores(u32 binst) {
 
 		inst.flags = set_mem_extend(inst.flags, va);
 		inst.simd_ldst.nreg = nreg;
-		inst.ldst.rt = regRd(binst);
-		inst.ldst.rn = regRnSP(binst);
+		inst.rt = regRd(binst);
+		inst.rn = regRnSP(binst);
 
 		// Post-indexed addrmode, either register-based or an immediate that
 		// depends on the number of bytes read/written.
 		if (fad_get_addrmode(inst.flags) == AM_POST) {
-			inst.ldst.rm = regRm(binst);
-			if (inst.ldst.rm == ZERO_REG) {
+			inst.rm = regRm(binst);
+			if (inst.rm == ZERO_REG) {
 				switch (Q) {
 				case 0: inst.simd_ldst.offset = nreg *  8; break; //  64-bit half vectors
 				case 1: inst.simd_ldst.offset = nreg * 16; break; // 128-bit full vectors
@@ -1284,14 +1284,14 @@ static Inst loads_and_stores(u32 binst) {
 
 		inst.flags = set_mem_extend(inst.flags, va);
 		inst.simd_ldst.nreg = nreg;
-		inst.ldst.rt = regRd(binst);
-		inst.ldst.rn = regRnSP(binst);
+		inst.rt = regRd(binst);
+		inst.rn = regRnSP(binst);
 
 		// Post-indexed addrmode, either register-based or an immediate that
 		// depends on the number of bytes read/written.
 		if (fad_get_addrmode(inst.flags) == AM_POST) {
-			inst.ldst.rm = regRm(binst);
-			if (inst.ldst.rm == ZERO_REG) {
+			inst.rm = regRm(binst);
+			if (inst.rm == ZERO_REG) {
 				switch (size) {
 				case FSZ_B: inst.simd_ldst.offset = nreg * 1; break;
 				case FSZ_H: inst.simd_ldst.offset = nreg * 2; break;
@@ -1341,7 +1341,7 @@ static Inst loads_and_stores(u32 binst) {
 				inst.ldst_order.store = (o0) ? MO_RELEASE : MO_NONE;
 				inst.ldst_order.rs = regRm(binst); // status register
 			}
-			inst.ldst.rt2 = (binst >> 10) & 0b11111;
+			inst.rt2 = (binst >> 10) & 0b11111;
 			goto common;
 		}
 
@@ -1372,8 +1372,8 @@ static Inst loads_and_stores(u32 binst) {
 		if (size != SZ_X)
 			inst.flags |= W32;
 
-		inst.ldst.rt = regRd(binst);
-		inst.ldst.rn = regRnSP(binst); // stack pointer can be base register
+		inst.rt = regRd(binst);
+		inst.rn = regRnSP(binst); // stack pointer can be base register
 		break;
 	}
 	case Literal: {
@@ -1397,7 +1397,7 @@ static Inst loads_and_stores(u32 binst) {
 		}
 
 		inst.offset = sext(((binst >> 5) & 0b1111111111111111111) << 2, 19+2); // imm19 * 4
-		inst.ldst.rt = regRd(binst);
+		inst.rt = regRd(binst);
 		break;
 	}
 	case PairNoAlloc: // fall through
@@ -1442,9 +1442,9 @@ static Inst loads_and_stores(u32 binst) {
 		uint imm7 = (binst >> 15) & 0b1111111;
 		inst.offset = scale * sext(imm7, 7);
 
-		inst.ldst.rt = regRd(binst);
-		inst.ldst.rn = regRnSP(binst); // stack pointer can be base register
-		inst.ldst.rt2 = (binst >> 10) & 0b11111;
+		inst.rt = regRd(binst);
+		inst.rn = regRnSP(binst); // stack pointer can be base register
+		inst.rt2 = (binst >> 10) & 0b11111;
 		break;
 	}
 	case UnscaledImm: // fall through -- like Register, but with different immediate (and LDUR/STUR opcodes)
@@ -1559,20 +1559,20 @@ static Inst loads_and_stores(u32 binst) {
 			bool S = (binst >> 12) & 1;
 			inst.shift.type = SH_LSL;
 			inst.shift.amount = (S) ? shift : 0;
-			inst.ldst.rm = regRm(binst);
+			inst.rm = regRm(binst);
 			break;
 		}
 		case AM_OFF_EXT: { // extended register
 			bool S = (binst >> 12) & 1;
 			inst.extend.type = (binst >> 13) & 0b111; // option(3)
 			inst.extend.lsl = (S) ? shift : 0;
-			inst.ldst.rm = regRm(binst);
+			inst.rm = regRm(binst);
 			break;
 		}
 		}
 
-		inst.ldst.rt = regRd(binst);
-		inst.ldst.rn = regRnSP(binst); // stack pointer can be base register
+		inst.rt = regRd(binst);
+		inst.rn = regRnSP(binst); // stack pointer can be base register
 		break;
 	}
 	case Unprivileged:
@@ -1610,9 +1610,9 @@ static Inst loads_and_stores(u32 binst) {
 		inst.flags = set_mem_extend(inst.flags, size);
 		inst.ldst_order.load = (acquire) ? MO_ACQUIRE : MO_NONE;
 		inst.ldst_order.store = (release) ? MO_RELEASE : MO_NONE;
-		inst.ldst.rt = regRd(binst);
-		inst.ldst.rn = regRnSP(binst); // stack pointer can be base register
-		inst.ldst.rs = regRm(binst);
+		inst.rt = regRd(binst);
+		inst.rn = regRnSP(binst); // stack pointer can be base register
+		inst.rs = regRm(binst);
 		break;
 	}
 	case PAC:
