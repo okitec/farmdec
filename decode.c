@@ -667,7 +667,7 @@ static Inst branches(u32 binst) {
 		inst.op = (zero) ? A64_CBZ : A64_CBNZ;
 
 		inst.offset = sext(((binst >> 5) & 0b1111111111111111111) << 2, 19+2); // imm19 * 4
-		inst.rn = binst & 0b11111; // Rt; not modified → Inst.rn, not .rd
+		inst.rt = binst & 0b11111;
 		break;
 	}
 	case TestAndBranch: {
@@ -681,7 +681,7 @@ static Inst branches(u32 binst) {
 		u32 b40 = (binst >> 19) & 0b11111;
 		u32 b5 = binst & (1<<31);
 		inst.tbz.bit = (b5 >> (31-5)) | b40; // b5:b40
-		inst.rn = binst & 0b11111;           // Rt; not modified → Inst.rn, not .rd
+		inst.rt = binst & 0b11111;
 		break;
 	}
 	}

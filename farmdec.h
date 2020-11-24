@@ -544,9 +544,9 @@ struct Inst {
 	// for pairwise load/store).
 	union {
 		Reg rd;  // destination register - Rd
-		Reg rt;  // destination of load, source of store - Rt (target)
+		Reg rt;  // destination of load, source of store, CBZ/TBZ operand - Rt (target)
 	};
-	Reg rn;          // first (or only) operand, read-only - Rn, Rt (CBZ); base addressing register (Xn)
+	Reg rn;          // first (or only) operand, read-only - Rn; base addressing register (Xn)
 	union {
 		Reg rm;  // second operand, read-only - Rm; index register for AM_OFF_REG, AM_OFF_EXT
 		Reg rt2; // second destination/source register for LDP, STP and variants (e.g. LDXP)
