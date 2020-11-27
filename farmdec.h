@@ -332,12 +332,6 @@ enum Op {
 	A64_LDP_FP,
 	A64_STP_FP,
 
-	// Load/store register (unscaled immediate)
-	A64_LDUR,
-	A64_STUR,
-	A64_LDUR_FP,
-	A64_STUR_FP,
-
 	// Load/store register (unprivileged): unsupported system instructions
 
 	// Load register (literal)                      -- AM_LITERAL
@@ -347,8 +341,9 @@ enum Op {
 	// Load/store register (immediate pre-indexed)  -- AM_PRE
 	// Load/store register (register offset)        -- AM_OFF_REG, AM_OFF_EXT
 	// Load/store register (unsigned immediate)     -- AM_OFF_IMM
-	A64_LDR, // LDR, LDAR, LDLAR
-	A64_STR, // STR, STLR, STLLR
+	// Load/store register (unscaled immediate)     -- AM_OFF_IMM
+	A64_LDR, // LDR, LDAR, LDLAR, LDUR
+	A64_STR, // STR, STLR, STLLR, STUR
 	A64_LDR_FP,
 	A64_STR_FP,
 

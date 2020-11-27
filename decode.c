@@ -1174,7 +1174,6 @@ static Inst loads_and_stores(u32 binst) {
 	case 0b1111010:
 	case 0b1111011: { // 111x01x -- unsigned immediate
 		kind = Register;
-		// AM_OFF_IMM: unambiguous since UnscaledImm is a different kind and has other opcodes.
 		inst.flags = set_addrmode(inst.flags, AM_OFF_IMM);
 		break;
 	}
@@ -1487,11 +1486,7 @@ static Inst loads_and_stores(u32 binst) {
 				break;
 			}
 
-			if (kind == UnscaledImm) {
-				inst.op = (load) ? A64_LDUR_FP : A64_STUR_FP;
-			} else {
-				inst.op = (load) ? A64_LDR_FP : A64_STR_FP;
-			}
+			inst.op = (load) ? A64_LDR_FP : A64_STR_FP;
 			inst.flags = set_mem_extend(inst.flags, size);
 		} else {
 			Size size = top2;
@@ -1521,11 +1516,7 @@ static Inst loads_and_stores(u32 binst) {
 				break;
 			}
 
-			if (kind == UnscaledImm) {
-				inst.op = (load) ? A64_LDUR : A64_STUR;
-			} else {
-				inst.op = (load) ? A64_LDR : A64_STR;
-			}
+			inst.op = (load) ? A64_LDR : A64_STR;
 			if (w32) {
 				inst.flags |= W32;
 			}
