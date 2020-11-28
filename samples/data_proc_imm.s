@@ -23,7 +23,9 @@ move_wide:
 	mov x0, #1234
 	movk w1, #1234
 	movn x0, #0xaaaa
+	movn x0, #0xaaaa, lsl #32
 	movz x4, #0xff00
+	movz x4, #0xff00, lsl #48
 
 imm_shifts:
 	lsl x0, x1, #32

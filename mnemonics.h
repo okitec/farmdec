@@ -13,8 +13,6 @@ char *mnemonics[] = {
 	"orr_imm",
 	"eor_imm",
 	"tst_imm",
-	"movn",
-	"movz",
 	"movk",
 	"mov_imm",
 	"sbfm",

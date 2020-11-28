@@ -86,13 +86,12 @@ enum Op {
 	A64_TST_IMM, // TST Rn -- ANDS alias (Rd := RZR, predicate: Rd == ZR && set_flags)
 
 	// Move wide (immediate)
-	A64_MOVN,
-	A64_MOVZ,
-	A64_MOVK,
+	A64_MOVK, // keep other bits
 
 	// Synthetic instruction comprising MOV (bitmask immediate), MOV (inverted wide immediate)
-	// and MOV (wide immediate), which are themselves aliases of ORR_IMM, MOVN and MOVZ respectively.
-	// For lifting, we do not care how the immediate is encoded, only that it is an immediate move.
+	// and MOV (wide immediate), MOVN and MOVZ; essentially all MOVs where the result of the
+	// operation can be precalculated. For lifting, we do not care how the immediate was encoded,
+	// only that it is an immediate move.
 	A64_MOV_IMM,
 
 	// Bitfield
@@ -556,7 +555,7 @@ struct Inst {
 		struct {
 			u32 imm16;
 			u32 lsl;   // left shift amount (0, 16, 32, 48)
-		} mov_wide;
+		} movk;
 		struct {
 			u32 lsb;
 			u32 width;

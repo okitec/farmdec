@@ -232,43 +232,29 @@ static Inst data_proc_imm(u32 binst) {
 		break;
 	}
 	case Move: {
-		switch (top3 & 0b011) { // opc
-		case 0b00: inst.op = A64_MOVN; break;
-		case 0b01: return UNKNOWN_INST;
-		case 0b10: inst.op = A64_MOVZ; break;
-		case 0b11: inst.op = A64_MOVK; break;
-		}
-
 		u8 hw = (binst >> 21) & 0b11;
+		u8 shift = 16 * hw;
 		u64 imm16 = (binst >> 5) & 0xFFFF;
-		inst.mov_wide.imm16 = imm16;
-		inst.mov_wide.lsl = 16 * hw;
+
+		switch (top3 & 0b011) { // opc
+		case 0b00: // MOVN: Move with NOT
+			inst.op = A64_MOV_IMM;
+			inst.imm = ~ (imm16 << shift);
+			break;
+		case 0b01:
+			return UNKNOWN_INST;
+		case 0b10: // MOVZ: zero other bits
+			inst.op = A64_MOV_IMM;
+			inst.imm = imm16 << shift;
+			break;
+		case 0b11: // MOVK: keep other bits
+			inst.op = A64_MOVK;
+			inst.movk.imm16 = imm16;
+			inst.movk.lsl = shift;
+			break;
+		}
 
 		inst.rd = regRd(binst);
-
-		// Unshifted or nonzero immediate... there might be a MOV alias.
-		if (imm16 != 0 || hw == 0) {
-			switch (inst.op) {
-			case A64_MOVN:
-				if ((inst.flags | W32) && imm16 == 0xFFFF) {
-					break; // for 32-bits variant, imm16 may not be all-ones
-				}
-
-				inst.op = A64_MOV_IMM;
-				inst.imm = ~ (imm16 << inst.mov_wide.lsl);
-				break;
-			case A64_MOVZ:
-				inst.op = A64_MOV_IMM;
-				inst.imm = imm16 << inst.mov_wide.lsl;
-				break;
-			case A64_MOVK:
-				break;
-			default:
-				// Shut up impossible unhandled enum value warning.
-				return errinst("data_proc_imm/Move: cannot happen");
-			}
-		}
-
 		break;
 	}
 	case Bitfield: {
