@@ -376,7 +376,9 @@ static Inst find_bfm_alias(Op op, bool w32, Reg rd, Reg rn, u8 immr, u8 imms) {
 
 	inst.rd = rd;
 	inst.rn = rn;
-	inst.flags |= W32;
+	if (w32) {
+		inst.flags |= W32;
+	}
 
 	// General note:
 	//
