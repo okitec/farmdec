@@ -405,12 +405,6 @@ enum Op {
 	A64_FCVTLN,  // Narrow to lower precision
 
 	// Floating-Point Computation (scalar & vector)
-	//
-	// Inst.flags.prec := Sca(fp) precision
-	// Inst.flags.vec := 0
-	//     OR
-	// Inst.flags.ext := Vec(fp) vector arrangement
-	// Inst.flags.vec := 1
 	A64_FABS,
 	A64_FNEG,
 	A64_FSQRT,
@@ -418,10 +412,11 @@ enum Op {
 	A64_FDIV,
 	A64_FADD,
 	A64_FSUB,
-	A64_FMAX,   // max(n, NaN) → exception or FPCR flag set
+	A64_FMAX,   // max(n, NaN) → exception or FPSR flag set
 	A64_FMAXNM, // max(n, NaN) → n
-	A64_FMIN,   // min(n, NaN) → exception or FPCR flag set
+	A64_FMIN,   // min(n, NaN) → exception or FPSR flag set
 	A64_FMINNM, // min(n, NaN) → n
+	// XXX add *_VEC variants
 
 	// Floating-Point Fused Multiply (scalar)
 	A64_FNMUL,
@@ -597,7 +592,6 @@ enum special_registers {
 
 enum flagmasks {
 	W32 = 1 << 0,       // use the 32-bit W0...W31 facets?
-	VEC = 1 << 0,       // for FP (FADD, ...): vector or scalar?
 	SET_FLAGS = 1 << 1, // modify the NZCV flags? (S mnemonic suffix)
 };
 
@@ -620,7 +614,7 @@ struct Inst {
 	//     The SIMD+FP variants of the usual LDR, STR, ...
 	// LDx/STx:     ---mode---|----vec----|N/A| N/A  (see enum VectorArrangement)
 	//     LD1..4, ST1..4, etc., need the vector arrangement, like many SIMD operations.
-	// Scalar FP:   -----cond-----|---prec----|VEC=0 (enum Cond, enum FPSize)
+	// Scalar FP:   -----cond-----|---prec----| N/A  (enum Cond, enum FPSize)
 	u8 flags;
 
 	// There are various names and roles for the 1-3 main registers.
