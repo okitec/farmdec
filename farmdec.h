@@ -95,15 +95,15 @@ enum Op {
 	A64_MOV_IMM,
 
 	// Bitfield
-	A64_SBFM,
+	A64_SBFM,    // always decoded to an alias
 	A64_ASR_IMM,
 	A64_SBFIZ,
 	A64_SBFX,
-	A64_BFM,
+	A64_BFM,     // always decoded to an alias
 	A64_BFC,
 	A64_BFI,
 	A64_BFXIL,
-	A64_UBFM,
+	A64_UBFM,    // always decoded to an alias
 	A64_LSL_IMM,
 	A64_LSR_IMM,
 	A64_UBFIZ,
@@ -366,6 +366,82 @@ enum Op {
 	A64_SWP,
 	A64_CAS,   // Compare and Swap (actually from Exclusive group)
 	A64_CASP,  // Compare and Swap Pair of (double)words (actually from Exclusive group)
+
+	/*** Data Processing -- Scalar Floating-Point and Advanced SIMD ***/
+
+	// The instructions are ordered by functionality here, because the order of the
+	// top-level encodings, as used in the other categories, splits variants of the
+	// same instruction. We want as few opcodes as possible.
+
+	// Conversion between Floating Point and Integer/Fixed-Point
+	//
+	// Sca: SIMD&FP register interpreted as a scalar (Hn, Sn, Dn).
+	// Vec: SIMD&FP register interpreted as a vector (Vn.<T>).
+	// GPR: General Purpose Register (Wn, Xn).
+	//
+	// Inst.flags.W32  := GPR bits == 32
+	// Inst.flags.prec := Sca(fp) precision (FPSize)
+	// Inst.flags.ext  := Vec(fp) vector arrangement
+	// Inst.cvt.mode   := rounding mode
+	// Inst.cvt.fbits  := #fbits for fixed-point
+	// Inst.cvt.typ    := signed OR unsigned OR fixed-point
+	A64_FCVT_GPR, // Sca(fp)        → GPR(int|fixed)
+	A64_FCVT_VEC, // Vec(fp)        → Vec(int|fixed)
+	A64_CVTF,     // GPR(int|fixed) → Sca(fp)
+	A64_CVTF_VEC, // Vec(int|fixed) → Vec(fp)
+	A64_FJCVTZS,  // Sca(f32)       → GPR(i32); special Javascript instruction
+
+	// Rounding and Precision Conversion (scalar)
+	//
+	// Inst.flags.prec := Sca(fp) precision
+	// Inst.frint.mode := rounding mode
+	// Inst.frint.bits := 0 if any size, 32, 64
+	A64_FRINT,   // Round to integral (any size, 32-bit, or 64-bit)
+	A64_FRINTX,  // ---- Exact (throws Inexact exception on failure)
+	A64_FCVT_H,  // Convert from any precision to Half
+	A64_FCVT_S,  // -------------------------- to Single
+	A64_FCVT_D,  // -------------------------- to Double
+	A64_FCVTL,   // Extend to higher precision
+	A64_FCVTLN,  // Narrow to lower precision
+
+	// Floating-Point Computation (scalar & vector)
+	//
+	// Inst.flags.prec := Sca(fp) precision
+	// Inst.flags.vec := 0
+	//     OR
+	// Inst.flags.ext := Vec(fp) vector arrangement
+	// Inst.flags.vec := 1
+	A64_FABS,
+	A64_FNEG,
+	A64_FSQRT,
+	A64_FMUL,
+	A64_FDIV,
+	A64_FADD,
+	A64_FSUB,
+	A64_FMAX,   // max(n, NaN) → exception or FPCR flag set
+	A64_FMAXNM, // max(n, NaN) → n
+	A64_FMIN,   // min(n, NaN) → exception or FPCR flag set
+	A64_FMINNM, // min(n, NaN) → n
+
+	// Floating-Point Fused Multiply (scalar)
+	A64_FNMUL,
+	A64_FMADD, 
+	A64_FMSUB,
+	A64_FNMADD,
+	A64_FNMSUB,
+
+	// Floating-Point Compare, Select, Move (scalar)
+	A64_FCMP_REG,   // compare Rn, Rm
+	A64_FCMP_ZERO,  // compare Rn and 0.0
+	A64_FCMPE_REG,
+	A64_FCMPE_ZERO,
+	A64_FCCMP,
+	A64_FCCMPE,
+	A64_FCSEL,
+	A64_FMOV_GPR, // GPR ←→ SIMD&FP reg, without conversion
+	A64_FMOV_REG, // SIMD&FP ←→ SIMD&FP
+	A64_FMOV_IMM, // SIMD&FP ← 8-bit float immediate (see VFPExpandImm)
+	A64_FMOV_VEC, // vector ← 8-bit imm ----; replicate imm to all lanes
 };
 
 // The condition bits used by conditial branches, selects and compares, stored in the
@@ -471,6 +547,19 @@ enum VectorArrangement {
 	VA_2D  = (FSZ_D << 1) | 1, // 128 bit
 };
 
+// Floating-point rounding mode. See shared/functions/float/fprounding/FPRounding
+// in the shared pseudocode functions of the A64 ISA documentation. The letter
+// is the one used in the FCVT* mnemonics.
+enum FPRounding {
+	FPR_CURRENT,  // "Current rounding mode"
+	FPR_TIE_EVEN, // N, Nearest with Ties to Even, default IEEE 754 mode
+	FPR_TIE_AWAY, // A, Nearest with Ties Away from Zero
+	FPR_NEG_INF,  // M, → -∞
+	FPR_ZERO,     // Z, → 0
+	FPR_POS_INF,  // P, → +∞
+	FPR_ODD,      // XN, Non-IEEE 754 Round to Odd, only used by FCVTXN(2)
+};
+
 // ExtendType: signed(1):size(2)
 enum ExtendType {
 	UXTB = (0 << 2) | SZ_B,
@@ -508,6 +597,7 @@ enum special_registers {
 
 enum flagmasks {
 	W32 = 1 << 0,       // use the 32-bit W0...W31 facets?
+	VEC = 1 << 0,       // for FP (FADD, ...): vector or scalar?
 	SET_FLAGS = 1 << 1, // modify the NZCV flags? (S mnemonic suffix)
 };
 
@@ -526,10 +616,11 @@ struct Inst {
 	// Load/Store:  ---mode---|----ext----|N/A| W32  (see enum AddrMode, enum ExtendType)
 	//     The load/store ext field stores the access size and and whether to do sign
 	//     extension or zero extension. Hence it is identical to an ExtendType.
-	// L/S Float:   ---mode---|----size---|N/A| N/A  (see enum FPSize)
+	// L/S Float:   ---mode---|N/A|---prec----| N/A  (see enum FPSize)
 	//     The SIMD+FP variants of the usual LDR, STR, ...
 	// LDx/STx:     ---mode---|----vec----|N/A| N/A  (see enum VectorArrangement)
 	//     LD1..4, ST1..4, etc., need the vector arrangement, like many SIMD operations.
+	// Scalar FP:   -----cond-----|---prec----|VEC=0 (enum Cond, enum FPSize)
 	u8 flags;
 
 	// There are various names and roles for the 1-3 main registers.
@@ -548,6 +639,7 @@ struct Inst {
 	};
 	union {
 		u64 imm;     // single immediate
+		double fimm; // FMOV_IMM 8-bit immediate extended to double
 		s64 offset;  // branches, ADR, ADRP: PC-relative byte offset
 		Reg ra;      // third operand for 3-source data proc instrs (MADD, etc.)
 		char *error; // error string for op = A64_ERROR
@@ -603,6 +695,10 @@ struct Inst {
 			u16 index;  // for single-struct variants: index of vector lane to load/store
 			s16 offset; // offset to use if AM_POST and offset register Rm == ZERO_REG
 		} simd_ldst; // LD1..4, ST1..4
+		struct {
+			u32 mode; // rounding mode -- enum FPRounding
+			u32 bits; // 0 → round to integral; 32/64 → round to 32/64-bit int
+		} frint;
 	};
 };
 
@@ -613,12 +709,14 @@ extern "C" {
 	farmdec::Cond fad_get_cond(u8 flags);
 	farmdec::AddrMode fad_get_addrmode(u8 flags);
 	farmdec::ExtendType fad_get_mem_extend(u8 flags);
+	farmdec::FPSize fad_get_prec(u8 flags);
 	int fad_decode(u32 *in, uint n, farmdec::Inst *out);
 }
 #else
 	Cond fad_get_cond(u8 flags);
 	AddrMode fad_get_addrmode(u8 flags);
 	ExtendType fad_get_mem_extend(u8 flags);
+	FPSize fad_get_prec(u8 flags);
 	int fad_decode(u32 *in, uint n, Inst *out);
 #endif
 

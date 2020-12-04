@@ -50,6 +50,14 @@ static u8 set_mem_extend(u8 flags, ExtendType memext) {
 	return ((memext&0b111) << 2) | (flags&0b11100011);
 }
 
+FPSize fad_get_prec(u8 flags) {
+	return (FPSize)((flags >> 1) & 0b111);
+}
+
+static u8 set_prec(u8 flags, FPSize prec) {
+	return ((prec&0b111) << 1) | (flags&0b11110001);
+}
+
 // The destination register Rd, if present, occupies bits 0..4.
 // Register 31 is treated as the Zero/Discard register ZR/WZR.
 static Reg regRd(u32 binst) {
@@ -1369,9 +1377,9 @@ static Inst loads_and_stores(u32 binst) {
 		inst.op = (vector) ? A64_LDR_FP : A64_LDR;
 		if (vector) {
 			switch (top2) { // opc
-			case 0b00: inst.flags = set_mem_extend(inst.flags, FSZ_S); break;
-			case 0b01: inst.flags = set_mem_extend(inst.flags, FSZ_D); break;
-			case 0b10: inst.flags = set_mem_extend(inst.flags, FSZ_Q); break;
+			case 0b00: inst.flags = set_prec(inst.flags, FSZ_S); break;
+			case 0b01: inst.flags = set_prec(inst.flags, FSZ_D); break;
+			case 0b10: inst.flags = set_prec(inst.flags, FSZ_Q); break;
 			case 0b11: return errinst("loads_and_stores/Literal: unallocated instruction");
 			}
 		} else {
@@ -1396,9 +1404,9 @@ static Inst loads_and_stores(u32 binst) {
 		if (vector) {
 			inst.op = (load) ? A64_LDP_FP : A64_STP_FP;
 			switch (top2) {
-			case 0b00: scale =  4; inst.flags = set_mem_extend(inst.flags, FSZ_S); break; // Single (32 bits)
-			case 0b01: scale =  8; inst.flags = set_mem_extend(inst.flags, FSZ_D); break; // Double (64 bits)
-			case 0b10: scale = 16; inst.flags = set_mem_extend(inst.flags, FSZ_Q); break; // Quad  (128 bits)
+			case 0b00: scale =  4; inst.flags = set_prec(inst.flags, FSZ_S); break; // Single (32 bits)
+			case 0b01: scale =  8; inst.flags = set_prec(inst.flags, FSZ_D); break; // Double (64 bits)
+			case 0b10: scale = 16; inst.flags = set_prec(inst.flags, FSZ_Q); break; // Quad  (128 bits)
 			default:
 				return errinst("loads_and_stores: invalid opc for LDP/STP");
 			}
@@ -1475,7 +1483,7 @@ static Inst loads_and_stores(u32 binst) {
 			}
 
 			inst.op = (load) ? A64_LDR_FP : A64_STR_FP;
-			inst.flags = set_mem_extend(inst.flags, size);
+			inst.flags = set_prec(inst.flags, size);
 		} else {
 			Size size = top2;
 			bool sign_extend = false;
@@ -1601,6 +1609,238 @@ static Inst loads_and_stores(u32 binst) {
 	return inst;
 }
 
+static Inst scalar_floating_point(u32 binst);
+
+static Inst data_proc_float_and_simd(u32 binst) {
+	Inst inst = UNKNOWN_INST;
+
+	// Scalar FP ops have the op0=x0x1 pattern.
+	u8 op0 = (binst >> 28) & 0b1111;
+
+	switch (op0) {
+	case 0b0001:
+	case 0b0011:
+	case 0b1001:
+	case 0b1011:
+		return scalar_floating_point(binst);
+	default:
+		return errinst("SIMD not implemented");
+	}
+
+	return inst;
+}
+
+static double vfp_expand_imm(u8 imm);
+
+// These instructions all use the vector registers as scalar floats of
+// varying precision, and their encoding is rather similar to each other
+// and rather different from the encoding of vector operations.
+static Inst scalar_floating_point(u32 binst) {
+	Inst inst = UNKNOWN_INST;
+
+	bool b24 = (binst >> 24) & 1;
+	bool b21 = (binst >> 21) & 1;
+	u8 op3 = (binst >> 10) & 0b111111111;
+
+	// Field "type" (bits 23-22): precision, but not in FPSize order
+	switch ((binst >> 22) & 0b11) {
+	case 0b00: inst.flags = set_prec(inst.flags, FSZ_S); break;
+	case 0b01: inst.flags = set_prec(inst.flags, FSZ_D); break;
+	case 0b10: return errinst("scalar_floating_point: bad precision");
+	case 0b11: inst.flags = set_prec(inst.flags, FSZ_H); break;
+	}
+
+	enum {
+		Unknown,     // b24 | b21 |    op3
+		DataProc3,   //  1  |  x  | xxxxxxxxx
+		ConvFixed,   //  0  |  0  | xxxxxxxxx
+		ConvInt,     //  0  |  1  | xxx000000
+		DataProc1,   //  0  |  1  | xxxx10000
+		Compare,     //  0  |  1  | xxxxx1000
+		Immediate,   //  0  |  1  | xxxxxx100
+		CondCompare, //  0  |  1  | xxxxxxx01
+		DataProc2,   //  0  |  1  | xxxxxxx10
+		CondSelect,  //  0  |  1  | xxxxxxx11
+	} kind = Unknown;
+
+	if (b24) {
+		kind = DataProc3;
+	} else if (!b21) {
+		kind = ConvFixed;
+	} else if ((op3 & 0b111111) == 0b000000) {
+		kind = ConvInt;
+	} else if ((op3 & 0b11111)  ==  0b10000) {
+		kind = DataProc1;
+	} else if ((op3 & 0b1111)   ==   0b1000) {
+		kind = Compare;
+	} else if ((op3 & 0b111)    ==    0b100) {
+		kind = Immediate;
+	} else if ((op3 & 0b11)     ==     0b01) {
+		kind = CondCompare;
+	} else if ((op3 & 0b11)     ==     0b10) {
+		kind = DataProc2;
+	} else if ((op3 & 0b11)     ==     0b11) {
+		kind = CondSelect;
+	} else {
+		kind = Unknown;
+	}
+
+	switch (kind) {
+	case Unknown:
+		return UNKNOWN_INST;
+	case DataProc3: {
+		bool o0 = (binst >> 15) & 1;
+		bool o1 = (binst >> 21) & 1;
+
+		switch ((o1 << 1) | o0) {
+		case 0b00: inst.op = A64_FMADD;  break;
+		case 0b01: inst.op = A64_FMSUB;  break;
+		case 0b10: inst.op = A64_FNMADD; break;
+		case 0b11: inst.op = A64_FNMSUB; break;
+		}
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		inst.ra = (binst >> 10) & 0b11111;
+		break;
+	}
+	case ConvFixed: {
+		return errinst("scalar_floating_point: fixed-point conversion not yet implemented");
+	}
+	case ConvInt: {
+		return errinst("scalar_floating_point: integer conversion not yet implemented");
+	}
+	case DataProc1: {
+		u8 opcode = (binst >> 15) & 0b111111;
+
+		switch (opcode) {
+		case 0b000000: inst.op = A64_FMOV_REG; break;
+		case 0b000001: inst.op = A64_FABS; break;
+		case 0b000010: inst.op = A64_FNEG; break;
+		case 0b000011: inst.op = A64_FSQRT; break;
+		case 0b000100: inst.op = A64_FCVT_S; break;
+		case 0b000101: inst.op = A64_FCVT_D; break;
+		case 0b000111: inst.op = A64_FCVT_H; break;
+		case 0b001000: inst.op = A64_FRINT; inst.frint.mode = FPR_TIE_EVEN; break; // frintN
+		case 0b001001: inst.op = A64_FRINT; inst.frint.mode = FPR_POS_INF;  break; // frintP
+		case 0b001010: inst.op = A64_FRINT; inst.frint.mode = FPR_NEG_INF;  break; // frintM
+		case 0b001011: inst.op = A64_FRINT; inst.frint.mode = FPR_ZERO;     break; // frintZ
+		case 0b001100: inst.op = A64_FRINT; inst.frint.mode = FPR_TIE_AWAY; break; // frintA
+			// 0b001101 is unallocated
+		case 0b001110: inst.op = A64_FRINTX; inst.frint.mode = FPR_CURRENT; break; // frintX
+		case 0b001111: inst.op = A64_FRINT;  inst.frint.mode = FPR_CURRENT; break; // frintI
+		case 0b010000: inst.op = A64_FRINT;  inst.frint.mode = FPR_ZERO;    inst.frint.bits = 32; break; // frint32Z
+		case 0b010001: inst.op = A64_FRINTX; inst.frint.mode = FPR_CURRENT; inst.frint.bits = 32; break; // frint32X
+		case 0b010010: inst.op = A64_FRINT;  inst.frint.mode = FPR_ZERO;    inst.frint.bits = 64; break; // frint64Z
+		case 0b010011: inst.op = A64_FRINTX; inst.frint.mode = FPR_CURRENT; inst.frint.bits = 64; break; // frint64X
+		default:
+			return errinst("scalar_floating_point/DataProc1: bad opcode");
+		}
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		break;
+	}
+	case Compare: {
+		u8 opcode = binst & 0b11111;
+		switch (opcode) {
+		case 0b00000: inst.op = A64_FCMP_REG;   break;
+		case 0b01000: inst.op = A64_FCMP_ZERO;  break;
+		case 0b10000: inst.op = A64_FCMPE_REG;  break;
+		case 0b11000: inst.op = A64_FCMPE_ZERO; break;
+		default:
+			return errinst("scalar_floating_point/Compare: bad opcode");
+		}
+
+		inst.rn = regRn(binst);
+		if (inst.op == A64_FCMP_REG || inst.op== A64_FCMPE_REG) {
+			inst.rm = regRm(binst);
+		}
+		break;
+	}
+	case Immediate: {
+		u8 imm8 = (binst >> 13) & 0xff;
+		inst.op = A64_FMOV_IMM;
+		inst.fimm = vfp_expand_imm(imm8);
+		inst.rd = regRd(binst);
+		break;
+	}
+	case CondCompare: {
+		Cond cond = (binst >> 12) & 0b1111;
+		bool signalling = (binst >> 4) & 1;
+
+		inst.op = (signalling) ? A64_FCCMPE : A64_FCCMP;
+		inst.flags = set_cond(inst.flags, cond);
+		inst.ccmp.nzcv = binst & 0b1111;
+		inst.ccmp.imm5 = 0;
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		break;
+	}
+	case DataProc2: {
+		u8 opcode = (binst >> 12) & 0b1111;
+		switch (opcode) {
+		case 0b0000: inst.op = A64_FMUL;   break;
+		case 0b0001: inst.op = A64_FDIV;   break;
+		case 0b0010: inst.op = A64_FADD;   break;
+		case 0b0011: inst.op = A64_FSUB;   break;
+		case 0b0100: inst.op = A64_FMAX;   break;
+		case 0b0101: inst.op = A64_FMIN;   break;
+		case 0b0110: inst.op = A64_FMAXNM; break;
+		case 0b0111: inst.op = A64_FMINNM; break;
+		case 0b1000: inst.op = A64_FNMUL;  break;
+		}
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		break;
+	}
+	case CondSelect: {
+		Cond cond = (binst >> 12) & 0b1111;
+		inst.op = A64_FCSEL;
+		inst.flags = set_cond(inst.flags, cond);
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		break;
+	}
+	}
+
+	return inst;
+}
+
+// Expands an FMOV 8-bit FP immediate. Implementation of the pseudocode
+//
+//     bits(N) VFPExpandImm(bits(8) imm8)
+//
+// found in the ARM A64 ISA manual, specialised to bits(64). The imm8
+// is constructed as follows:
+//
+//     7 6 5 4 3 2 1 0
+//     ± -exp- --frc--
+//
+static double vfp_expand_imm(u8 imm8) {
+	u64 sign = (((u64)imm8) >> 7) & 1;
+
+	// imm8(exp) → "sign extend" to double exponent of 11 bits.
+	u64 exp = (((u64)imm8) >> 4) & 0b111;
+	u64 expsgn = (exp >> 2) & 1;
+	u64 inverted_expsgn = (~expsgn) & 1; 
+	u64 dexp = (inverted_expsgn<<10) | (expsgn<<9) | (expsgn<<8) | (expsgn<<7) | (expsgn<<6)
+	            | (expsgn<<5) | (expsgn<<4) | (expsgn<<3) | (expsgn<<2) | (exp&0b11);
+
+	// imm8(frac) → top 4 bits of double mantissa of 52 bits.
+	u64 dfrac = (((u64)imm8) & 0b1111) << (52 - 4);
+
+	union {
+		u64    ieee754;
+		double d;
+	} foo;
+	foo.ieee754 = (sign << 63) | ((dexp&0b11111111111) << 52) | dfrac;
+	return foo.d;
+}
+
 // decode decodes n binary instructions from the input buffer and
 // puts them in the output buffer, which must have space for n Insts.
 int fad_decode(u32 *in, uint n, Inst *out) {
@@ -1634,7 +1874,7 @@ int fad_decode(u32 *in, uint n, Inst *out) {
 			break;
 		case 0b0111:
 		case 0b1111: // x111
-			out[i] = errinst("FP+SIMD processing not supported");
+			out[i] = data_proc_float_and_simd(binst);
 			break;
 		default:
 			out[i] = UNKNOWN_INST;

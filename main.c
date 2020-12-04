@@ -70,11 +70,11 @@ int main(int argc, char **argv) {
 		// We do not disambiguate here -- all instructions are printed
 		// the same; for example, instructions with two immediates have
 		// the imm field printed too.
-		printf("%04x %-12s%c %c%d, %c%d, %c%d, imm=%lu, imm2=(%u,%u), offset=%+ld, w32=%o, set_flags=%o, memext=%o, addrmode=%o, cond=%x\n",
+		printf("%04x %-12s%c %c%d, %c%d, %c%d, imm=%lu, fimm=%f imm2=(%u,%u), offset=%+ld, w32=%o, set_flags=%o, memext=%o, fpprec=%o, addrmode=%o, cond=%x\n",
 			4*i, mnemonics[inst.op], flagsch,
 			regch, inst.rd, regch, inst.rn, regch, inst.rm,
-			inst.imm, inst.bfm.lsb, inst.bfm.width, inst.offset, inst.flags&W32, inst.flags&SET_FLAGS,
-			fad_get_mem_extend(inst.flags), fad_get_addrmode(inst.flags), fad_get_cond(inst.flags));
+			inst.imm, inst.fimm, inst.bfm.lsb, inst.bfm.width, inst.offset, inst.flags&W32, inst.flags&SET_FLAGS,
+			fad_get_mem_extend(inst.flags), fad_get_prec(inst.flags), fad_get_addrmode(inst.flags), fad_get_cond(inst.flags));
 	}
 
 	return 0;
