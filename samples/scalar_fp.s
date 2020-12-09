@@ -1,6 +1,30 @@
+fmov:
+	fmov h1, w2
+	fmov s1, w2
+	fmov d1, x2
+	fmov w2, h1
+	fmov w2, s1
+	fmov x2, d1
+	fmov v1.d[1], x2
+	fmov x2, v1.d[1]
+
 fp_fixed_point_conv:
+	fcvtzs x2, d1, #15
+	fcvtzu w2, h1, #3
+	scvtf s1, x2, #17
+	ucvtf d1, w2, #5
 
 int_conv:
+	fcvtns w2, d1
+	fcvtnu x2, s1
+	scvtf d1, w2
+	ucvtf s1, x2
+	fcvtps x2, d1
+	fcvtms x2, d1
+	fcvtzs x2, d1
+	fcvtas x2, d1
+	fcvtau x2, d1
+	fjcvtzs w2, d1
 
 fp_one_source:
 	fmov h1, h2

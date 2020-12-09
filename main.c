@@ -45,12 +45,6 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	double ibufM = ((double)ninst*sizeof(u32)) / (1024.0 * 1024.0);
-	double obufM = ((double)ninst*sizeof(Inst)) / (1024.0 * 1024.0);
-	double totalM = ibufM + obufM;
-	printf("#inst:     %7ld\nibuf size: %6.1fM\nobuf size: %6.1fM\ntotal:     %6.1fM\n",
-		ninst, ibufM, obufM, totalM);
-
 	fad_decode(ibuf, ninst, obuf);
 
 	for (uint i = 0; i < ninst; i++) {
@@ -70,7 +64,7 @@ int main(int argc, char **argv) {
 		// We do not disambiguate here -- all instructions are printed
 		// the same; for example, instructions with two immediates have
 		// the imm field printed too.
-		printf("%04x %-12s%c %c%d, %c%d, %c%d, imm=%lu, fimm=%f imm2=(%u,%u), offset=%+ld, w32=%o, set_flags=%o, memext=%o, fpprec=%o, addrmode=%o, cond=%x\n",
+		printf("%04x %-12s %c %c%d, %c%d, %c%d, imm=%lu, fimm=%f, imm2=(%u,%u), offset=%+ld, w32=%o, set_flags=%o, memext=%o, fpprec=%o, addrmode=%o, cond=%x\n",
 			4*i, mnemonics[inst.op], flagsch,
 			regch, inst.rd, regch, inst.rn, regch, inst.rm,
 			inst.imm, inst.fimm, inst.bfm.lsb, inst.bfm.width, inst.offset, inst.flags&W32, inst.flags&SET_FLAGS,

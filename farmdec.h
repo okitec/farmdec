@@ -433,7 +433,10 @@ enum Op {
 	A64_FCCMP,
 	A64_FCCMPE,
 	A64_FCSEL,
-	A64_FMOV_GPR, // GPR ←→ SIMD&FP reg, without conversion
+	A64_FMOV_VEC2GPR, // GPR ← SIMD&FP reg, without conversion
+	A64_FMOV_GPR2VEC, // GPR → SIMD&FP reg, ----
+	A64_FMOV_TOP2GPR, // GPR ← SIMD&FP top half (of full 128 bits), ----
+	A64_FMOV_GPR2TOP, // GPR → SIMD&FP top half (of full 128 bits), ----
 	A64_FMOV_REG, // SIMD&FP ←→ SIMD&FP
 	A64_FMOV_IMM, // SIMD&FP ← 8-bit float immediate (see VFPExpandImm)
 	A64_FMOV_VEC, // vector ← 8-bit imm ----; replicate imm to all lanes
@@ -602,7 +605,7 @@ enum flagmasks {
 struct Inst {
 	Op op;
 
-	// Overloaded flags bitfield. The two lowest bits W32 and SET_FLAGS are never overloaded.
+	// Overloaded flags bitfield.
 	//
 	//              7   6   5   4   3   2   1   0
 	// Default:     - | - | - | - | - | - | S | W32
@@ -689,6 +692,11 @@ struct Inst {
 			u16 index;  // for single-struct variants: index of vector lane to load/store
 			s16 offset; // offset to use if AM_POST and offset register Rm == ZERO_REG
 		} simd_ldst; // LD1..4, ST1..4
+		struct {
+			u32 mode;  // rounding mode -- enum FPRounding
+			u16 fbits; // 0 → integer conversion; >0 → bits after binary fixed point
+			u16 sgn;   // is signed?
+		} fcvt; // FCVT, CVTF
 		struct {
 			u32 mode; // rounding mode -- enum FPRounding
 			u32 bits; // 0 → round to integral; 32/64 → round to 32/64-bit int

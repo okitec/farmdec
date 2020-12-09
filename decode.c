@@ -1646,7 +1646,11 @@ static Inst scalar_floating_point(u32 binst) {
 	switch ((binst >> 22) & 0b11) {
 	case 0b00: inst.flags = set_prec(inst.flags, FSZ_S); break;
 	case 0b01: inst.flags = set_prec(inst.flags, FSZ_D); break;
-	case 0b10: return errinst("scalar_floating_point: bad precision");
+	case 0b10:
+		// Do not give up just yet; FMOV_TOP2GPR and GRP2TOP have type=0b10.
+		// In these cases, we overwrite inst with the right values again.
+		inst = errinst("scalar_floating_point: bad precision");
+		break;
 	case 0b11: inst.flags = set_prec(inst.flags, FSZ_H); break;
 	}
 
@@ -1706,10 +1710,84 @@ static Inst scalar_floating_point(u32 binst) {
 		break;
 	}
 	case ConvFixed: {
-		return errinst("scalar_floating_point: fixed-point conversion not yet implemented");
+		bool sf = (binst >> 31) & 1; // bit 31 is the size flag: 0→32, 1→64
+		if (!sf) {
+			inst.flags |= W32;
+		}
+
+		u8 opcode = (binst >> 16) & 0b111;
+		switch (opcode) {
+		case 0b000: inst.op = A64_FCVT_GPR; inst.fcvt.sgn = true; break;
+		case 0b001: inst.op = A64_FCVT_GPR; inst.fcvt.sgn = false; break;
+		case 0b010: inst.op = A64_CVTF; inst.fcvt.sgn = true; break;
+		case 0b011: inst.op = A64_CVTF; inst.fcvt.sgn = false; break;
+		default:
+			errinst("scalar_floating_point/ConvFixed: bad opcode");
+		}
+
+		u8 scale = (binst >> 10) & 0b111111;
+
+		inst.fcvt.mode = FPR_ZERO;
+		inst.fcvt.fbits = 64 - scale; // always 64 - scale, even for w32
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		break;
 	}
 	case ConvInt: {
-		return errinst("scalar_floating_point: integer conversion not yet implemented");
+		bool sf = (binst >> 31) & 1; // bit 31 is the size flag: 0→32, 1→64
+		if (!sf) {
+			inst.flags |= W32;
+		}
+
+		u8 rmode = (binst >> 19) & 0b11;
+		switch (rmode) {
+		case 0b00: inst.fcvt.mode = FPR_TIE_EVEN; break;
+		case 0b01: inst.fcvt.mode = FPR_POS_INF; break;
+		case 0b10: inst.fcvt.mode = FPR_NEG_INF; break;
+		case 0b11: inst.fcvt.mode = FPR_ZERO;    break;
+		}
+
+		u8 opcode = (binst >> 16) & 0b111;
+		switch (opcode) {
+		case 0b000: inst.op = A64_FCVT_GPR; inst.fcvt.sgn = true;  break;
+		case 0b001: inst.op = A64_FCVT_GPR; inst.fcvt.sgn = false; break;
+		case 0b010: inst.op = A64_CVTF; inst.fcvt.sgn = true;  break;
+		case 0b011: inst.op = A64_CVTF; inst.fcvt.sgn = false; break;
+		case 0b100: inst.op = A64_FCVT_GPR; inst.fcvt.sgn = true;  inst.fcvt.mode = FPR_TIE_AWAY; break; // FCVTAS
+		case 0b101: inst.op = A64_FCVT_GPR; inst.fcvt.sgn = false; inst.fcvt.mode = FPR_TIE_AWAY; break; // FCVTAU
+		case 0b110:
+			// FMOV: Clear unused immediate again.
+			switch (rmode) {
+			case 0b00: inst.imm = 0; inst.op = A64_FMOV_VEC2GPR; break;
+			case 0b01: inst.imm = 0; inst.op = A64_FMOV_TOP2GPR; break;
+			case 0b11:
+				inst.op = A64_FJCVTZS;
+				inst.fcvt.mode = FPR_ZERO;
+				inst.fcvt.sgn = true;
+				break;
+			default:
+				return errinst("scalar_floating_point/ConvInt: bad rmode for opcode=0b110");
+			}
+			inst.rd = regRd(binst);
+			inst.rn = regRn(binst);
+			return inst;
+		case 0b111:
+			// FMOV: Clear unused immediate again.
+			switch (rmode) {
+			case 0b00: inst.imm = 0; inst.op = A64_FMOV_GPR2VEC; break;
+			case 0b01: inst.imm = 0; inst.op = A64_FMOV_GPR2TOP; break;
+			default:
+				return errinst("scalar_floating_point/ConvInt: bad rmode for opcode=0b111");
+			}
+			inst.rd = regRd(binst);
+			inst.rn = regRn(binst);
+			return inst;
+		}
+
+		inst.fcvt.fbits = 0; // integer conversion → 0
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		break;
 	}
 	case DataProc1: {
 		u8 opcode = (binst >> 15) & 0b111111;
