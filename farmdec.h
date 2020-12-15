@@ -391,24 +391,28 @@ enum Op {
 	A64_CVTF_VEC, // Vec(int|fixed) → Vec(fp)
 	A64_FJCVTZS,  // Sca(f32)       → GPR(i32); special Javascript instruction
 
-	// Rounding and Precision Conversion (scalar)
+	// Rounding and Precision Conversion
 	//
 	// Inst.flags.prec := Sca(fp) precision
 	// Inst.frint.mode := rounding mode
 	// Inst.frint.bits := 0 if any size, 32, 64
 	A64_FRINT,   // Round to integral (any size, 32-bit, or 64-bit)
+	A64_FRINT_VEC,
 	A64_FRINTX,  // ---- Exact (throws Inexact exception on failure)
+	A64_FRINTX_VEC,
 	A64_FCVT_H,  // Convert from any precision to Half
 	A64_FCVT_S,  // -------------------------- to Single
 	A64_FCVT_D,  // -------------------------- to Double
-	A64_FCVTL,   // Extend to higher precision
-	A64_FCVTLN,  // Narrow to lower precision
+	A64_FCVTL,   // Extend to higher precision (vector)
+	A64_FCVTN,   // Narrow to lower precision  (vector)
+	A64_FCVTXN,  // Narrow to lower precision, round to odd (vector)
 
-	// Floating-Point Computation (scalar & vector)
+	// Floating-Point Computation (scalar)
 	A64_FABS,
 	A64_FNEG,
 	A64_FSQRT,
 	A64_FMUL,
+	A64_FMULX,
 	A64_FDIV,
 	A64_FADD,
 	A64_FSUB,
@@ -416,7 +420,13 @@ enum Op {
 	A64_FMAXNM, // max(n, NaN) → n
 	A64_FMIN,   // min(n, NaN) → exception or FPSR flag set
 	A64_FMINNM, // min(n, NaN) → n
-	// XXX add *_VEC variants
+
+	// Floating-Point Stepwise (scalar)
+	A64_FRECPE,
+	A64_FRECPS,
+	A64_FRECPX,
+	A64_FRSQRTE,
+	A64_FRSQRTS,
 
 	// Floating-Point Fused Multiply (scalar)
 	A64_FNMUL,
@@ -440,6 +450,234 @@ enum Op {
 	A64_FMOV_REG, // SIMD&FP ←→ SIMD&FP
 	A64_FMOV_IMM, // SIMD&FP ← 8-bit float immediate (see VFPExpandImm)
 	A64_FMOV_VEC, // vector ← 8-bit imm ----; replicate imm to all lanes
+
+	// SIMD Floating-Point Compare
+	A64_FCMEQ_REG,
+	A64_FCMEQ_ZERO,
+	A64_FCMGE_REG,
+	A64_FCMGE_ZERO,
+	A64_FCMGT_REG,
+	A64_FCMGT_ZERO,
+	A64_FACGE,
+	A64_FACGT,
+
+	// SIMD Simple Floating-Point Computation (vector <op> vector, vector <op> vector[i])
+	A64_FABS_VEC,
+	A64_FABD_VEC,
+	A64_FNEG_VEC,
+	A64_FSQRT_VEC,
+	A64_FMUL_ELEM,
+	A64_FMUL_VEC,
+	A64_FMULX_ELEM,
+	A64_FMULX_VEC,
+	A64_FDIV_VEC,
+	A64_FADD_VEC,
+	A64_FCADD, // complex addition
+	A64_FSUB_VEC,
+	A64_FMAX_VEC,
+	A64_FMAXNM_VEC,
+	A64_FMIN_VEC,
+	A64_FMINNM_VEC,
+
+	// SIMD Floating-Point Stepwise
+	A64_FRECPE_VEC,
+	A64_FRECPS_VEC,
+	A64_FRSQRTE_VEC,
+	A64_FRSQRTS_VEC,
+
+	// SIMD Floating-Point Fused Multiply
+	A64_FMLA_ELEM,
+	A64_FMLA_VEC,
+	A64_FMLAL_ELEM,
+	A64_FMLAL_VEC,
+	A64_FCMLA_ELEM,
+	A64_FCMLA_VEC,
+	A64_FMLS_ELEM,
+	A64_FMLS_VEC,
+	A64_FMLSL_ELEM,
+	A64_FMLSL_VEC,
+
+	// SIMD Floating-Point Computation (reduce)
+	A64_FADDP,
+	A64_FADDP_VEC,
+	A64_FMAXP,
+	A64_FMAXP_VEC,
+	A64_FMAXV,
+	A64_FMAXNMP,
+	A64_FMAXNMP_VEC,
+	A64_FMAXNMV,
+	A64_FMINP,
+	A64_FMINP_VEC,
+	A64_FMINV,
+	A64_FMINNMP,
+	A64_FMINNMP_VEC,
+	A64_FMINNMV,
+
+	// SIMD Bitwise: Logical, Pop Count, Bit Reversal, Byte Swap, Simple Left Shift
+	A64_AND_VEC,
+	A64_BCAX, // ARMv8.2-SHA
+	A64_BIC_VEC_IMM,
+	A64_BIC_VEC_REG,
+	A64_BIF,
+	A64_BIT,
+	A64_BSL,
+	A64_CLS_VEC,
+	A64_CLZ_VEC,
+	A64_CNT,
+	A64_EOR_VEC,
+	A64_EOR3,    // ARMv8.2-SHA
+	A64_NOT_VEC, // also called MVN
+	A64_ORN_VEC,
+	A64_ORR_VEC_IMM,
+	A64_ORR_VEC_REG,
+	A64_MOV_VEC, // alias of ORR_VEC_REG
+	A64_RAX1, // ARMv8.2-SHA
+	A64_RBIT_VEC,
+	A64_REV16_VEC,
+	A64_REV32_VEC,
+	A64_REV64_VEC,
+	A64_SHL_IMM,
+	A64_SHLL,
+	A64_SHRN, // SHRN, RSHRN
+	A64_SLI,
+	A64_XAR, // ARMv8.2-SHA
+
+	// SIMD Copy, Table Lookup, Transpose, Extract, Insert, Zip, Unzip
+	A64_DUP_ELEM, // ∀k < lanes: Dst[k] ← Src[i] (or if Dst is scalar: Dst ← Src[i])
+	A64_DUP_GPR,  // ∀k < lanes: Dst[k] ← Xn
+	A64_EXT,
+	A64_INS_ELEM, // Dst[j] ← Src[i]
+	A64_INS_GPR,  // Dst[i] ← Xn
+	A64_MOVI,     // includes MVNI
+	A64_SMOV,     // Xd ← sext(Src[i])
+	A64_UMOV,     // Xd ← Src[i]
+	A64_TBL,
+	A64_TBX,
+	A64_TRN1,
+	A64_TRN2,
+	A64_UZP1,
+	A64_UZP2,
+	A64_XTN,
+	A64_ZIP1,
+	A64_ZIP2,
+
+	// SIMD Integer/Bitwise Compare
+	A64_CMEQ_REG,
+	A64_CMEQ_ZERO,
+	A64_CMGE_REG,
+	A64_CMGE_ZERO,
+	A64_CMGT_REG,
+	A64_CMGT_ZERO,
+	A64_CMHI_REG,  // no ZERO variant
+	A64_CMHS_REG,  // no ZERO variant
+	A64_CMLE_ZERO, // no REG variant
+	A64_CMLT_ZERO, // no REG variant
+	A64_CMTST,
+
+	// SIMD Integer Computation (vector <op> vector, vector <op> vector[i])
+	//
+	// Signedness (e.g. SABD vs UABD) is encoded via the SIMD_SIGNED flag,
+	// rounding vs truncating behaviour (e.g. SRSHL vs SSHL) in SIMD_ROUND.
+	A64_ABS_VEC,
+
+	A64_ABD,
+	A64_ABDL,
+	A64_ABA,
+	A64_ABAL,
+
+	A64_NEG_VEC,
+
+	A64_MUL_ELEM,
+	A64_MUL_VEC,
+	A64_MULL_ELEM,
+	A64_MULL_VEC,
+
+	A64_ADD_VEC,
+	A64_ADDL,
+
+	A64_ADDW,
+	A64_ADDHN,
+	A64_HADD,
+
+	A64_SUB_VEC,
+	A64_SUBHN,
+	A64_SUBL,
+	A64_SUBW,
+	A64_HSUB,
+
+	A64_MAX_VEC,
+	A64_MIN_VEC,
+
+	A64_DOT_ELEM,
+	A64_DOT_VEC,
+
+	// SIMD Integer unsigned/signed shifts
+	A64_SHL_REG,  // SSHL, USHL, SRSHL, URSHL
+	A64_SHLL_IMM, // SSHLL, USHLL
+	A64_SHR_IMM,  // SSHR, USHR, SRSHR, URSHR
+	A64_SHRL_IMM, // SSHRL, USHRL
+	A64_SRA_IMM,  // SSRA, USRA, SRSRA, URSRA
+
+	// SIMD Integer Stepwise (both are unsigned exclusive)
+	A64_URECPE,
+	A64_URSQRTE,
+
+	// SIMD Integer Fused Multiply
+	A64_MLAL_ELEM,
+	A64_MLAL_VEC,
+	A64_MLSL_ELEM,
+	A64_MLSL_VEC,
+
+	// SIMD Integer Computation (reduce)
+	A64_ADALP,
+	A64_ADDLP,
+	A64_ADDLV,
+	A64_MAXP,
+	A64_MAXV,
+	A64_MINP,
+	A64_MINV,
+
+	// SIMD Saturating Integer Arithmetic (unsigned, signed)
+	A64_QADD,
+	A64_QABS,
+	A64_SUQADD,
+	A64_USQADD,
+	A64_QSHL_IMM,
+	A64_QSHL_REG,
+	A64_QSHRN,
+	A64_QSUB,
+	A64_QXTN,
+
+	// SIMD Saturating Integer Arithmetic (signed exclusive)
+	A64_SQABS,
+	A64_SQADD,
+
+	A64_SQDMLAL_ELEM,
+	A64_SQDMLAL_VEC,
+	A64_SQDMLSL_ELEM,
+	A64_SQDMLSL_VEC,
+
+	A64_SQDMULH_ELEM,
+	A64_SQDMULH_VEC,
+	A64_SQDMULL_ELEM,
+	A64_SQDMULL_VEC,
+
+	A64_SQNEG,
+
+	A64_SQRDMLAH_ELEM,
+	A64_SQRDMLAH_VEC,	
+	A64_SQRDMLSH_ELEM,
+	A64_SQRDMLSH_VEC,
+	A64_SQRDMULH_ELEM,
+	A64_SQRDMULH_VEC,
+
+	A64_SQSHLU,
+	A64_SQSHRUN, // SQSHRUN, SQRSHRUN
+	A64_SQXTUN,
+
+	// SIMD Polynomial Multiply
+	A64_PMUL,
+	A64_PMULL,
 };
 
 // The condition bits used by conditial branches, selects and compares, stored in the
@@ -533,7 +771,8 @@ enum FPSize {
 // vectors used by a SIMD instruction, where it is encoded in size(2):Q(1).
 //
 // The vector registers V0...V31 are 128 bit long, but some arrangements use
-// only the bottom 64 bits.
+// only the bottom 64 bits. Scalar SIMD instructions encode their scalars'
+// precision as FPSize in the upper two bits.
 enum VectorArrangement {
 	VA_8B  = (FSZ_B << 1) | 0, //  64 bit
 	VA_16B = (FSZ_B << 1) | 1, // 128 bit
@@ -594,8 +833,12 @@ enum special_registers {
 };
 
 enum flagmasks {
-	W32 = 1 << 0,       // use the 32-bit W0...W31 facets?
-	SET_FLAGS = 1 << 1, // modify the NZCV flags? (S mnemonic suffix)
+	W32 = 1 << 0,         // use the 32-bit W0...W31 facets?
+	SET_FLAGS = 1 << 1,   // modify the NZCV flags? (S mnemonic suffix)
+	// SIMD: Is scalar? If so, interpret Inst.flags.vec<2:1> as FPSize precision for the scalar.
+	SIMD_SCALAR = 1 << 5,
+	SIMD_SIGNED = 1 << 6, // Integer SIMD: treat values as signed?
+	SIMD_ROUND = 1 << 7,  // Integer SIMD: round result instead of truncating?
 };
 
 // An Inst is a decoded instruction. Depending on the .op field, you can access
@@ -610,14 +853,23 @@ struct Inst {
 	//              7   6   5   4   3   2   1   0
 	// Default:     - | - | - | - | - | - | S | W32
 	// Conditional: -----cond-----| - | - | S | W32  (see enum Cond)
-	// Load/Store:  ---mode---|----ext----|N/A| W32  (see enum AddrMode, enum ExtendType)
+	// Load/Store:  ---mode---|----ext----| - | W32  (see enum AddrMode, enum ExtendType)
 	//     The load/store ext field stores the access size and and whether to do sign
 	//     extension or zero extension. Hence it is identical to an ExtendType.
-	// L/S Float:   ---mode---|N/A|---prec----| N/A  (see enum FPSize)
+	// L/S Float:   ---mode---|N/A|---prec----|  -   (see enum FPSize)
 	//     The SIMD+FP variants of the usual LDR, STR, ...
-	// LDx/STx:     ---mode---|----vec----|N/A| N/A  (see enum VectorArrangement)
+	// LDx/STx:     ---mode---|----vec----| - |  -   (see enum VectorArrangement)
 	//     LD1..4, ST1..4, etc., need the vector arrangement, like many SIMD operations.
-	// Scalar FP:   -----cond-----|---prec----| N/A  (enum Cond, enum FPSize)
+	// Scalar FP:   -----cond-----|---prec----|  -   (see enum Cond, enum FPSize)
+	// Int SIMD:   RND|SGN|SCA|----vec----| - |  -   (see enum VectorArrangement, SIMD_SCALAR, SIMD_ROUND, SIMD_SIGNED)
+	// SIMD:        - | - |SCA|----vec----| - |  -   (see enum VectorArrangement, SIMD_SCALAR)
+	//     For most SIMD instructions, there's also a scalar variant, and to avoid
+	//     opcode bloat, it's encoded with the SIMD_SCALAR bit. The difference is
+	//     that Scalar variants have just one element. Its precision is encoded in
+	//     the top two bits of the vector arrangement.
+	// GPR SIMD:    - |SGN|SCA|----vec----| - | W32
+	//     Transport instructions like DUP_GPR, INS_GPR that have a general-purpose
+	//     register as source or destination encode w32 with the usual bit.
 	u8 flags;
 
 	// There are various names and roles for the 1-3 main registers.

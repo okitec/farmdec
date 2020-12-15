@@ -1610,21 +1610,29 @@ static Inst loads_and_stores(u32 binst) {
 }
 
 static Inst scalar_floating_point(u32 binst);
+static Inst decode_simd(u32 binst);
 
 static Inst data_proc_float_and_simd(u32 binst) {
 	Inst inst = UNKNOWN_INST;
 
-	// Scalar FP ops have the op0=x0x1 pattern.
 	u8 op0 = (binst >> 28) & 0b1111;
 
 	switch (op0) {
 	case 0b0001:
 	case 0b0011:
 	case 0b1001:
-	case 0b1011:
+	case 0b1011: // x0x1
 		return scalar_floating_point(binst);
+	case 0b1100:
+		return errinst("cryptographic instructions not supported");
+	case 0b1000:
+	case 0b1010:
+	case 0b1101:
+	case 0b1110:
+	case 0b1111:
+		return errinst("unknown SIMD instruction");
 	default:
-		return errinst("SIMD not implemented");
+		return decode_simd(binst);
 	}
 
 	return inst;
@@ -1883,6 +1891,131 @@ static Inst scalar_floating_point(u32 binst) {
 		inst.rm = regRm(binst);
 		break;
 	}
+	}
+
+	return inst;
+}
+
+static Inst decode_simd(u32 binst) {
+	Inst inst = UNKNOWN_INST;
+
+	u8 size = (binst >> 22) & 0b11;
+	bool scalar = (binst >> 28) & 1;
+	bool U = (binst >> 29) & 1; // often – but not always – means Unsigned
+	bool Q = (binst >> 30) & 1; // use full 128-bit vectors? (vector arrangement = size:Q)
+
+	// Although the tables in the manual have distinct groups for scalar instructions
+	// (e.g. "Advanced SIMD scalar copy") and vector instructions (e.g. "Advanced SIMD
+	// copy"), they share the same encoding "marker" and have the exact structure.
+	// Bit 28 differentiates between the two: 0→vector, 1→scalar.
+	enum {
+		Unknown,
+		// CryptoAES,
+		// CryptoThreeRegSHA,
+		// CryptoTwoRegSHA,
+		// ScalarThreeSameFP16,
+		// ScalarTwoRegMiscFP16,
+		// ThreeSameFP16,
+		// TwoRegMiscFP16,
+		// CryptoThreeRegImm2,
+		// CryptoThreeRegSHA512,
+		// CryptoFourReg,
+		// XAR,
+		// CryptoTwoRegSHA512,
+		TableLookup,
+		Permute,
+		Extract,
+		Copy,           // includes ScalarCopy
+		ThreeSameExtra, // includes ScalarThreeSameExtra
+		TwoRegMisc,     // includes ScalarTwoRegMisc
+		Reduce,         // ScalarPairwise, AcrossLanes
+		ThreeDiff,      // includes ScalarThreeDiff
+		ThreeSame,      // includes ScalarThreeSame
+		ModifiedImm,
+		ShiftByImm,     // includes ScalarShiftByImm
+		IndexedElem,    // includes ScalarXIndexedElem
+	} kind = Unknown;
+
+	bool b10 = (binst >> 10) & 1;
+	bool b11 = (binst >> 11) & 1;
+	bool b15 = (binst >> 15) & 1;
+	u8 op21 = (binst >> 21) & 0b1111; // <24:21> is a good starting point for differentiation
+	u8 op17 = (binst >> 17) & 0b1111; // <20:17> is a secondary marker
+	u8 immh = (binst >> 19) & 0b1111; // differentiates ShiftByImm and ModifiedImm
+
+	switch (op21) {
+	case 0b0000:
+	case 0b0010:
+	case 0b0100:
+	case 0b0110: // 0xx0
+		if (op21 == 0b0000 && U && !b15 && !b10)
+			kind = Extract;
+		else if (op21 == 0b0000 && !b15 && b10)
+			kind = Copy;
+		else if (op21 == 0b0000 && !b15 && !b11 && !b10)
+			kind = TableLookup;
+		else if (!b15 && b11 && !b10)
+			kind = Permute;
+		else if (b15 && b10)
+			kind = ThreeSameExtra;
+		break;
+	case 0b0001:
+	case 0b0011:
+	case 0b0101:
+	case 0b0111: // 0xx1
+		if (op17 == 0b0000 && b11 && !b10)
+			kind = TwoRegMisc;
+		else if (op17 == 0b1000 && b11 && !b10)
+			kind = Reduce;
+		else if (!b11 && !b10)
+			kind = ThreeDiff;
+		else if (b10)
+			kind = ThreeSame;
+		break;
+	case 0b1000:
+	case 0b1001:
+	case 0b1010:
+	case 0b1011:
+	case 0b1100:
+	case 0b1101:
+	case 0b1110:
+	case 0b1111: // 1xxx
+		if (immh == 0b0000 && b10)
+			kind = ModifiedImm;
+		else if (immh != 0b0000 && b10)
+			kind = ShiftByImm;
+		else if (!b10)
+			kind = IndexedElem;
+		break;
+	}
+
+	switch (kind) {
+	case Unknown:
+		return errinst("SIMD: bad instruction");
+	case TableLookup:
+		return errinst("SIMD/TableLookup: not yet implemented");
+	case Permute:
+		return errinst("SIMD/Permute: not yet implemented");
+	case Extract:
+		return errinst("SIMD/Extract: not yet implemented");
+	case Copy:
+		return errinst("SIMD/Copy: not yet implemented");
+	case ThreeSameExtra:
+		return errinst("SIMD/ThreeSameExtra: not yet implemented");
+	case TwoRegMisc:
+		return errinst("SIMD/TwoRegMisc: not yet implemented");
+	case Reduce:
+		return errinst("SIMD/Reduce: not yet implemented");
+	case ThreeDiff:
+		return errinst("SIMD/ThreeDiff: not yet implemented");
+	case ThreeSame:
+		return errinst("SIMD/ThreeSame: not yet implemented");
+	case ModifiedImm:
+		return errinst("SIMD/ModifiedImm: not yet implemented");
+	case ShiftByImm:
+		return errinst("SIMD/ShiftByImm: not yet implemented");
+	case IndexedElem:
+		return errinst("SIMD/IndexedElem: not yet implemented");
 	}
 
 	return inst;
