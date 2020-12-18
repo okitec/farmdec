@@ -50,6 +50,14 @@ static u8 set_mem_extend(u8 flags, ExtendType memext) {
 	return ((memext&0b111) << 2) | (flags&0b11100011);
 }
 
+VectorArrangement fad_get_vec_arrangement(u8 flags) {
+	return (VectorArrangement)((flags >> 2) & 0b111);
+}
+
+static u8 set_vec_arrangement(u8 flags, VectorArrangement va) {
+	return ((va&0b111) << 2) | (flags&0b11100011);
+}
+
 FPSize fad_get_prec(u8 flags) {
 	return (FPSize)((flags >> 1) & 0b111);
 }
@@ -1196,7 +1204,7 @@ static Inst loads_and_stores(u32 binst) {
 		case 0b1010: inst.op = (load) ? A64_LD1_MULT : A64_ST1_MULT; nreg = 2; break;
 		}
 
-		inst.flags = set_mem_extend(inst.flags, va);
+		inst.flags = set_vec_arrangement(inst.flags, va);
 		inst.simd_ldst.nreg = nreg;
 		inst.rt = regRd(binst);
 		inst.rn = regRnSP(binst);
@@ -1277,7 +1285,7 @@ static Inst loads_and_stores(u32 binst) {
 		case FSZ_Q: break; // impossible
 		}
 
-		inst.flags = set_mem_extend(inst.flags, va);
+		inst.flags = set_vec_arrangement(inst.flags, va);
 		inst.simd_ldst.nreg = nreg;
 		inst.rt = regRd(binst);
 		inst.rn = regRnSP(binst);

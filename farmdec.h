@@ -963,6 +963,7 @@ extern "C" {
 	farmdec::Cond fad_get_cond(u8 flags);
 	farmdec::AddrMode fad_get_addrmode(u8 flags);
 	farmdec::ExtendType fad_get_mem_extend(u8 flags);
+	farmdec::VectorArrangement fad_get_vec_arrangement(u8 flags);
 	farmdec::FPSize fad_get_prec(u8 flags);
 	int fad_decode(u32 *in, uint n, farmdec::Inst *out);
 }
@@ -970,6 +971,7 @@ extern "C" {
 	Cond fad_get_cond(u8 flags);
 	AddrMode fad_get_addrmode(u8 flags);
 	ExtendType fad_get_mem_extend(u8 flags);
+	VectorArrangement fad_get_vec_arrangement(u8 flags);
 	FPSize fad_get_prec(u8 flags);
 	int fad_decode(u32 *in, uint n, Inst *out);
 #endif
