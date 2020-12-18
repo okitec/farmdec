@@ -1911,6 +1911,10 @@ static Inst decode_simd(u32 binst) {
 	bool scalar = (binst >> 28) & 1;
 	bool U = (binst >> 29) & 1; // often – but not always – means Unsigned
 	bool Q = (binst >> 30) & 1; // use full 128-bit vectors? (vector arrangement = size:Q)
+	VectorArrangement va = (size << 1) | Q;
+
+	// A sensible default that can be overridden by specific instructions where needed.
+	inst.flags = set_vec_arrangement(inst.flags, va);
 
 	// Although the tables in the manual have distinct groups for scalar instructions
 	// (e.g. "Advanced SIMD scalar copy") and vector instructions (e.g. "Advanced SIMD
@@ -2006,8 +2010,88 @@ static Inst decode_simd(u32 binst) {
 		return errinst("SIMD/Permute: not yet implemented");
 	case Extract:
 		return errinst("SIMD/Extract: not yet implemented");
-	case Copy:
-		return errinst("SIMD/Copy: not yet implemented");
+	case Copy: {
+		u8 imm4 = (binst >> 11) & 0b1111; // really not an immediate, more of an opcode
+		u8 imm5 = (binst >> 16) & 0b11111;
+		bool op = (binst >> 29) & 1;
+
+		FPSize prec;
+		u32 idx;
+		if ((imm5 & 0b1111) == 0b1000) {      // x1000
+			idx = imm5 >> 4;
+			prec = FSZ_D;
+		} else if ((imm5 & 0b111) == 0b100) { // xx100
+			idx = imm5 >> 3;
+			prec = FSZ_S;
+		} else if ((imm5 & 0b11) == 0b10) {   // xxx10
+			idx = imm5 >> 2;
+			prec = FSZ_H;
+		} else if ((imm5 & 0b1) == 1) {       // xxxx1
+			idx = imm5 >> 1;
+			prec = FSZ_B;
+		} else {
+			return errinst("SIMD/Copy: bad imm5 field / destination index");
+		}
+
+		inst.flags = set_vec_arrangement(inst.flags, (prec << 1) | Q);
+
+		// INS_ELEM: uses imm4 as source index, not opcode.
+		if (op) {
+			inst.op = A64_INS_ELEM;
+			inst.flags = set_vec_arrangement(inst.flags, (prec << 1) | 1); // always 128-bit
+			inst.ins_elem.dst = idx;
+			switch (prec) {
+			case FSZ_B: inst.ins_elem.src = imm4 >> 0; break; // xxxx
+			case FSZ_H: inst.ins_elem.src = imm4 >> 1; break; // xxx0
+			case FSZ_S: inst.ins_elem.src = imm4 >> 2; break; // xx00
+			case FSZ_D: inst.ins_elem.src = imm4 >> 3; break; // x000
+			default:
+				return errinst("SIMD/Copy: bad precision");
+			}
+			inst.rd = regRd(binst);
+			inst.rn = regRn(binst);
+			break;
+		}
+
+		// imm4 as opcode
+		switch (imm4) {
+		case 0b0000:
+			inst.op = A64_DUP_ELEM;
+			inst.flags |= (scalar) ? SIMD_SCALAR : 0;
+			break;
+		case 0b0001:
+			inst.op = A64_DUP_GPR;
+			inst.flags |= (prec != FSZ_D) ? W32 : 0;
+			break;
+		case 0b0011:
+			inst.op = A64_INS_GPR;
+			inst.flags = set_vec_arrangement(inst.flags, (prec << 1) | 1); // always 128-bit
+			inst.flags |= (prec != FSZ_D) ? W32 : 0;
+			break;
+		case 0b0101: {
+			inst.op = A64_SMOV;
+			bool is_long = ((imm5 & 0b10000) > 0);
+			inst.flags = set_vec_arrangement(inst.flags, (prec << 1) | is_long);
+			inst.flags |= (!Q) ? W32 : 0;
+			inst.flags |= SIMD_SIGNED;
+			break;
+		}
+		case 0b0111: {
+			inst.op = A64_UMOV;
+			bool is_long = ((imm5 & 0b10000) > 0);
+			inst.flags = set_vec_arrangement(inst.flags, (prec << 1) | is_long);
+			inst.flags |= (!Q) ? W32 : 0;
+			break;
+		}
+		default:
+			return errinst("SIMD/Copy: bad instruction");
+		}
+
+		inst.imm = idx;
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		break;
+	}
 	case ThreeSameExtra:
 		return errinst("SIMD/ThreeSameExtra: not yet implemented");
 	case TwoRegMisc:

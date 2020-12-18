@@ -382,9 +382,9 @@ enum Op {
 	// Inst.flags.W32  := GPR bits == 32
 	// Inst.flags.prec := Sca(fp) precision (FPSize)
 	// Inst.flags.ext  := Vec(fp) vector arrangement
-	// Inst.cvt.mode   := rounding mode
-	// Inst.cvt.fbits  := #fbits for fixed-point
-	// Inst.cvt.typ    := signed OR unsigned OR fixed-point
+	// Inst.fcvt.mode  := rounding mode
+	// Inst.fcvt.fbits := #fbits for fixed-point
+	// Inst.fcvt.typ   := signed OR unsigned OR fixed-point
 	A64_FCVT_GPR, // Sca(fp)        → GPR(int|fixed)
 	A64_FCVT_VEC, // Vec(fp)        → Vec(int|fixed)
 	A64_CVTF,     // GPR(int|fixed) → Sca(fp)
@@ -543,10 +543,12 @@ enum Op {
 	A64_XAR, // ARMv8.2-SHA
 
 	// SIMD Copy, Table Lookup, Transpose, Extract, Insert, Zip, Unzip
+	//
+	// Inst.imm := index i
 	A64_DUP_ELEM, // ∀k < lanes: Dst[k] ← Src[i] (or if Dst is scalar: Dst ← Src[i])
 	A64_DUP_GPR,  // ∀k < lanes: Dst[k] ← Xn
 	A64_EXT,
-	A64_INS_ELEM, // Dst[j] ← Src[i]
+	A64_INS_ELEM, // Dst[j] ← Src[i], (i, j stored in Inst.ins_elem)
 	A64_INS_GPR,  // Dst[i] ← Xn
 	A64_MOVI,     // includes MVNI
 	A64_SMOV,     // Xd ← sext(Src[i])
@@ -953,6 +955,10 @@ struct Inst {
 			u32 mode; // rounding mode -- enum FPRounding
 			u32 bits; // 0 → round to integral; 32/64 → round to 32/64-bit int
 		} frint;
+		struct {
+			u32 dst; // destination index
+			u32 src; // source index
+		} ins_elem; // INS (element)
 	};
 };
 
