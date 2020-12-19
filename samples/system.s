@@ -8,6 +8,18 @@ exceptions:
 	dcps2
 	dcps3
 
+hints:
+	nop
+	yield
+	wfe
+	wfi
+	sev
+	sevl
+	esb
+	tsb csync
+	csdb
+	bti
+
 barriers:
 	clrex
 	dmb sy

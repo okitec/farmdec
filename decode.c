@@ -613,8 +613,13 @@ static Inst branches(u32 binst) {
 			break;
 		}
 
-		// Longest prefix → Barriers, but we need to check the prefix!
+		// Longest prefix → Barriers or Hints, but we need to check the prefix!
 		u16 op1 = (binst >> 12) & 0b11111111111111;
+		if (op1 == 0b01000000110010) {
+			inst.op = A64_HINT;
+			// XXX decode further in the future
+			return inst;
+		}
 		if (op1 != 0b01000000110011)
 			return UNKNOWN_INST;
 

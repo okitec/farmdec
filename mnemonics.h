@@ -40,6 +40,7 @@ char *mnemonics[] = {
 	"dcps1",
 	"dcps2",
 	"dcps3",
+	"hint",
 	"clrex",
 	"dmb",
 	"isb",

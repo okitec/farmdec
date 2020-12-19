@@ -134,7 +134,9 @@ enum Op {
 	A64_DCPS2,
 	A64_DCPS3,
 
-	// Hints -- OMITTED
+	// Hints -- we treat all allocated hints as NOP and don't decode to the "aliases"
+	// NOP, YIELD, ...
+	A64_HINT,
 
 	// Barriers
 	A64_CLREX,
