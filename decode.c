@@ -188,7 +188,7 @@ static Inst data_proc_imm(u32 binst) {
 		u32 uimm = (immhi >> (5-2)) | immlo; // pos(immhi) = 5; 2: len(immlo)
 
 		u64 scale = (inst.op == A64_ADRP) ? 4096 : 1; // ADRP: Page (4K) Address
-		s64 simm = sext(scale * uimm, 21);            // PC-relative → signed
+		s64 simm = scale * sext(uimm, 21);            // PC-relative → signed
 		inst.offset = simm;
 
 		inst.rd = regRd(binst);
