@@ -2105,8 +2105,74 @@ static Inst decode_simd(u32 binst) {
 		return errinst("SIMD/Reduce: not yet implemented");
 	case ThreeDiff:
 		return errinst("SIMD/ThreeDiff: not yet implemented");
-	case ThreeSame:
-		return errinst("SIMD/ThreeSame: not yet implemented");
+	case ThreeSame: {
+		u8 opcode = (binst >> 11) & 0b11111;
+		bool set_signedness = false; // set Inst.flags.signed = NOT (<U bit>)?
+		bool set_scalarity = false;  // set Inst.flags.scalar = <scalar bit>?
+
+		bool is_fp = false;
+
+		switch (opcode) {
+		case 0b00000: inst.op = A64_HADD; set_signedness = 1; break;
+		case 0b00001: inst.op = A64_QADD; set_signedness = 1; set_scalarity = 1; break;
+		case 0b00010: inst.op = A64_HADD; set_signedness = 1; inst.flags |= SIMD_ROUND; break;
+		case 0b00011:
+			// size acts as sub-opcode
+			switch (size) {
+			case 0b00: inst.op = (U) ? A64_EOR_VEC : A64_AND_VEC;     break;
+			case 0b01: inst.op = (U) ? A64_BSL     : A64_BIC;         break;
+			case 0b10: inst.op = (U) ? A64_BIT     : A64_ORR_VEC_REG; break;
+			case 0b11: inst.op = (U) ? A64_BIF     : A64_ORN_VEC;     break;
+			}
+			inst.flags = set_vec_arrangement(inst.flags, (FSZ_B << 1) | Q);
+			break;
+		case 0b00100: inst.op = A64_HSUB; set_signedness = 1; break;
+		case 0b00101: inst.op = A64_QSUB; set_signedness = 1; set_scalarity = 1; break;
+		case 0b00110: inst.op = (U) ? A64_CMHI_REG : A64_CMGT_REG; set_scalarity = 1; break;
+ 		case 0b00111: inst.op = (U) ? A64_CMHS_REG : A64_CMGE_REG; set_scalarity = 1; break;
+		case 0b01000: inst.op = A64_SHL_REG; set_signedness = 1; set_scalarity = 1; break;
+		case 0b01001: inst.op = A64_QSHL_REG; set_signedness = 1; set_scalarity = 1; break;
+		case 0b01010: inst.op = A64_SHL_REG; set_signedness = 1; set_scalarity = 1; inst.flags |= SIMD_ROUND; break;
+		case 0b01011: inst.op = A64_QSHL_REG; set_signedness = 1; set_scalarity = 1; inst.flags |= SIMD_ROUND; break;
+		case 0b01100: inst.op = A64_MAX_VEC; set_signedness = 1; break;
+		case 0b01101: inst.op = A64_MIN_VEC; set_signedness = 1; break;
+		case 0b01110: inst.op = A64_ABD; set_signedness = 1; break;
+		case 0b01111: inst.op = A64_ABA; set_signedness = 1; break;
+		case 0b10000: inst.op = (U) ? A64_SUB_VEC : A64_ADD_VEC; set_scalarity = 1; break;
+		case 0b10001: inst.op = (U) ? A64_CMEQ_REG : A64_CMTST; set_scalarity = 1; break;
+		case 0b10010: inst.op = (U) ? A64_MLS_VEC : A64_MLA_VEC; break;
+		case 0b10011: inst.op = (U) ? A64_PMUL : A64_MUL_VEC; break;
+		case 0b10100: inst.op = A64_MAXP; set_signedness = 1; break;
+		case 0b10101: inst.op = A64_MINP; set_signedness = 1; break;
+		case 0b10110: inst.op = A64_SQDMULH_VEC; set_scalarity = 1; inst.flags |= (U) ? SIMD_ROUND : 0; break;
+		case 0b10111: inst.op = A64_ADDP_VEC; break;
+		case 0b11000: is_fp = true; inst.op = (U) ? A64_FMAXNMP_VEC : ((size&0b10) ? A64_FMINNM_VEC : A64_FMAXNM_VEC); break;
+		case 0b11001: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FMLSL_VEC : A64_FMLAL_VEC) : ((size&0b10) ? A64_FMLS_VEC : A64_FMLA_VEC); break;
+		case 0b11010: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FABD_VEC : A64_FADDP_VEC) : ((size&0b10) ? A64_FSUB_VEC : A64_FADD_VEC); break;
+		case 0b11011: is_fp = true; inst.op = (U) ? A64_FMUL_VEC : ((scalar) ? A64_FMULX : A64_FMULX_VEC); break;
+		case 0b11100: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FCMGT_REG : A64_FCMGE_REG) : A64_FCMEQ_REG; set_scalarity = 1; break;
+		case 0b11101: is_fp = true; inst.op = (size&0b10) ? A64_FACGT : A64_FACGE; set_scalarity = 1; break;
+		case 0b11110: is_fp = true; inst.op = (size&0b10) ? A64_FMIN_VEC : A64_FMAX_VEC; break;
+		case 0b11111: is_fp = true; inst.op = (U) ? A64_FDIV_VEC : ((size&0b10) ? A64_FRSQRTS_VEC : A64_FRECPS_VEC); break;
+		}
+
+		if (set_signedness)
+			inst.flags |= (U) ? 0 : SIMD_SIGNED;
+
+		if (set_scalarity)
+			inst.flags |= (scalar) ? SIMD_SCALAR : 0;
+
+		// The floating-point instructions use the upper bit of size(2) to differentiate
+		// instructions, leaving only the lower bit to toggle between single and double
+		// precision.
+		if (is_fp)
+			inst.flags = set_vec_arrangement(inst.flags, (((size&1) ? FSZ_D : FSZ_S) << 1) | Q);
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		break;
+	}
 	case ModifiedImm:
 		return errinst("SIMD/ModifiedImm: not yet implemented");
 	case ShiftByImm:

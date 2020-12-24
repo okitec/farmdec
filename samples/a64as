@@ -2,4 +2,4 @@
 
 # a64as <name without extension> -- assemble a file of armv8.5a A64 assembly.
 
-llvm-mc -assemble -arch aarch64 -mattr +v8.5a -mattr mte -mattr fullfp16 -filetype obj -o $1.o $1.s
+llvm-mc -assemble -arch aarch64 -mattr +v8.5a -mattr mte -mattr fullfp16 -mattr fp16fml -filetype obj -o $1.o $1.s
