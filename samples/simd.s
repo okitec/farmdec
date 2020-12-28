@@ -173,3 +173,23 @@ shiftbyimm:
 	ucvtf d1, d2, #43
 	fcvtzs v1.2s, v2.2s, #30
 	fcvtzu v1.2d, v2.2d, #23
+
+modifiedimm:
+	movi v1.2s, #0xff, lsl #0
+	mvni v1.2s, #0xff, lsl #8
+	movi v1.2s, #0xff, lsl #16
+	movi v1.2s, #0xaa, msl #8
+	mvni v1.2s, #0xff, lsl #24
+	mvni v1.2s, #0xaa, msl #16
+	movi v1.4h, #0xff, lsl #0
+	mvni v1.4h, #0xff, lsl #8
+	movi v1.8b, #0xff
+	movi v1.2d, #0xff00ff00ff00ff00
+	movi d1, #0xff00ff00ff00ff00
+	orr v1.2s, #0x0f, lsl #8
+	orr v1.4h, #0xf0, lsl #0
+	bic v1.2s, #0x0f, lsl #8
+	bic v1.4h, #0xf0, lsl #0
+	fmov v1.8h, #1.5
+	fmov v1.4s, #1.5
+	fmov v1.2d, #1.5

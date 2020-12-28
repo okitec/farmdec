@@ -2236,8 +2236,104 @@ static Inst decode_simd(u32 binst) {
 		inst.rm = regRm(binst);
 		break;
 	}
-	case ModifiedImm:
-		return errinst("SIMD/ModifiedImm: not yet implemented");
+	case ModifiedImm: {
+		bool op = (binst >> 29) & 1;
+		u8 cmode = (binst >> 12) & 0b1111;
+
+		u8 abc = (binst >> 16) & 0b111;
+		u8 defgh = (binst >> 5) & 0b11111;
+		u64 imm8 = (abc << 5) | defgh; // a:b:c:d:e:f:g:h
+
+		uint zlsl = 0; // zero-shifting left shift amount
+		switch ((cmode >> 1) & 0b11) { // cmode<2:1>
+		case 0b00: zlsl =  0; break;
+		case 0b01: zlsl =  8; break;
+		case 0b10: zlsl = 16; break;
+		case 0b11: zlsl = 24; break;
+		}
+
+		uint olsl = (cmode & 1) ? 16 : 8; // ones-shifting left shift amount
+
+		switch (cmode) {
+		case 0b0000:
+		case 0b0010:
+		case 0b0100:
+		case 0b0110: // 0xx0 → MOVI(32), MVNI(22)
+			inst.op = A64_MOVI;
+			inst.flags = set_vec_arrangement(inst.flags, (FSZ_S << 1) | Q);
+			inst.imm = imm8 << zlsl;
+			inst.imm = (op) ? ~inst.imm : inst.imm; // op=1 → invert
+			break;
+		case 0b1000:
+		case 0b1010: // 10x0 → MOVI(16), MVNI(16)
+			inst.op = A64_MOVI;
+			inst.flags = set_vec_arrangement(inst.flags, (FSZ_H << 1) | Q);
+			inst.imm = imm8 << zlsl;
+			inst.imm = (op) ? ~inst.imm : inst.imm; // op=1 → invert
+			break;
+		case 0b1100:
+		case 0b1101: // 110x → MOVI(32, shifting ones), MVNI(32, shifting ones)
+			inst.op = A64_MOVI;
+			inst.flags = set_vec_arrangement(inst.flags, (FSZ_S << 1) | Q);
+			inst.imm = (imm8 << olsl) | ~(~((u64)0) << olsl); // shift #olsl ones
+			inst.imm = (op) ? ~inst.imm : inst.imm; // op=1 → invert
+			break;
+		case 0b1110: // 1110 → MOVI(8), MOVI(64, vec), MOVI(64, scalar)
+			inst.op = A64_MOVI;
+			if (op == 0) {
+				inst.imm = imm8;
+			} else {
+				inst.flags |= (Q) ? 0 : SIMD_SCALAR;
+				// 8 x a : 8 x b : ... : 8 x h
+				u64 abyte = (imm8 & 0b10000000) ? 0xff : 0;
+				u64 bbyte = (imm8 & 0b01000000) ? 0xff : 0;
+				u64 cbyte = (imm8 & 0b00100000) ? 0xff : 0;
+				u64 dbyte = (imm8 & 0b00010000) ? 0xff : 0;
+				u64 ebyte = (imm8 & 0b00001000) ? 0xff : 0;
+				u64 fbyte = (imm8 & 0b00000100) ? 0xff : 0;
+				u64 gbyte = (imm8 & 0b00000010) ? 0xff : 0;
+				u64 hbyte = (imm8 & 0b00000001) ? 0xff : 0;
+				inst.imm = (abyte << 56) | (bbyte << 48) | (cbyte << 40) | (dbyte << 32)
+				         | (ebyte << 24) | (fbyte << 16) | (gbyte <<  8) | (hbyte <<  0);
+			}
+			break;
+		case 0b0001:
+		case 0b0011:
+		case 0b0101:
+		case 0b0111: // 0xx1 → ORR(32), BIC(32)
+			inst.op = (op) ? A64_BIC_VEC_IMM : A64_ORR_VEC_IMM;
+			inst.flags = set_vec_arrangement(inst.flags, (FSZ_S << 1) | Q);
+			inst.imm = imm8 << zlsl;
+			break;
+		case 0b1001:
+		case 0b1011: // 10x1 → ORR(16), BIC(16)
+			inst.op = (op) ? A64_BIC_VEC_IMM : A64_ORR_VEC_IMM;
+			inst.flags = set_vec_arrangement(inst.flags, (FSZ_H << 1) | Q);
+			inst.imm = imm8 << zlsl;
+			break;
+		case 0b1111: {
+			bool o2 = (binst >> 11) & 1;
+
+			inst.op = A64_FMOV_VEC;
+			if (!op && !o2)
+				inst.flags = set_vec_arrangement(inst.flags, (FSZ_S << 1) | Q);
+			else if (!op && o2)
+				inst.flags = set_vec_arrangement(inst.flags, (FSZ_H << 1) | Q);
+			else if (op && !o2)
+				inst.flags = set_vec_arrangement(inst.flags, (FSZ_D << 1) | Q);
+			else
+				return errinst("SIMD/ModifiedImm: FMOV_VEC: unknown (op, o2) combination");
+
+			inst.fimm = vfp_expand_imm(imm8);
+			break;
+		}
+		default:
+			return errinst("SIMD/ModifiedImm: bad cmode");
+		}
+
+		inst.rd = regRd(binst);
+		break;
+	}
 	case ShiftByImm: {
 		u8 opcode = (binst >> 11) & 0b11111;
 		bool set_signedness = true; // set Inst.flags.signed = NOT (<U bit>)?
