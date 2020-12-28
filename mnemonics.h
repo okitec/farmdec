@@ -242,6 +242,8 @@ char *mnemonics[] = {
 	"fcmge_zero",
 	"fcmgt_reg",
 	"fcmgt_zero",
+	"fcmle_zero",
+	"fcmlt_zero",
 	"facge",
 	"facgt",
 	"fabs_vec",

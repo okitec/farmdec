@@ -2162,8 +2162,115 @@ static Inst decode_simd(u32 binst) {
 		inst.rm = regRm(binst);
 		break;
 	}
-	case TwoRegMisc:
-		return errinst("SIMD/TwoRegMisc: not yet implemented");
+	case TwoRegMisc: {
+		u8 opcode = (binst >> 12) & 0b11111;
+		bool set_signedness = false; // set Inst.flags.signed = NOT (<U bit>)?
+		bool set_scalarity = false;  // set Inst.flags.scalar = <scalar bit>?
+
+		bool is_fp = false;
+
+		switch (opcode) {
+		case 0b00000: inst.op = (U) ? A64_REV32_VEC : A64_REV64_VEC; break;
+		case 0b00001: inst.op = A64_REV16_VEC; break;
+		case 0b00010: inst.op = A64_ADDLP; set_signedness = 1; break;
+		case 0b00011: inst.op = (U) ? A64_USQADD : A64_SUQADD; set_scalarity = 1; break;
+		case 0b00100: inst.op = (U) ? A64_CLZ_VEC : A64_CLS_VEC; break;
+		case 0b00101:
+			inst.op = (U) ? ((size==0) ? A64_NOT_VEC : A64_RBIT_VEC) : A64_CNT;
+			inst.flags = set_vec_arrangement(inst.flags, (FSZ_B << 1) | Q);
+			break;
+		case 0b00110: inst.op = A64_ADALP; set_signedness = 1; break;
+		case 0b00111: inst.op = (U) ? A64_SQNEG : A64_SQABS; inst.flags |= SIMD_SIGNED; set_scalarity = 1; break;
+		case 0b01000: inst.op = (U) ? A64_CMGE_ZERO : A64_CMGT_ZERO; set_scalarity = 1; break;
+		case 0b01001: inst.op = (U) ? A64_CMLE_ZERO : A64_CMEQ_ZERO; set_scalarity = 1; break;
+		case 0b01010: inst.op = A64_CMLT_ZERO; set_scalarity = 1; break;
+		case 0b01011: inst.op = (U) ? A64_NEG_VEC : A64_ABS_VEC; set_scalarity = 1; break;
+		case 0b01100: is_fp = true; inst.op = (U) ? A64_FCMGE_ZERO : A64_FCMGT_ZERO; set_scalarity = 1; break;
+		case 0b01101: is_fp = true; inst.op = (U) ? A64_FCMLE_ZERO : A64_FCMEQ_ZERO; set_scalarity = 1; break;
+		case 0b01110: is_fp = true; inst.op = A64_FCMLT_ZERO; set_scalarity = 1; break;
+		case 0b01111: is_fp = true; inst.op = (U) ? A64_FNEG_VEC : A64_FABS_VEC; set_scalarity = 1; break;
+		case 0b10010: inst.op = (U) ? A64_SQXTUN : A64_XTN; set_scalarity = 1; break;
+		case 0b10100: inst.op = A64_QXTN; set_signedness = 1; set_scalarity = 1; break;
+		case 0b10110: is_fp = true; inst.op = (U) ? A64_FCVTXN : A64_FCVTN; set_scalarity = 1; break;
+		case 0b10111: is_fp = true; inst.op = A64_FCVTL; break;
+		case 0b11000:
+			is_fp = true;
+			inst.op = A64_FRINT_VEC;
+			inst.frint.mode = (U) ? FPR_TIE_AWAY : ((size & 0b10) ? FPR_POS_INF : FPR_TIE_EVEN);
+			break;
+		case 0b11001:
+			is_fp = true;
+			if (U) {
+				inst.op = (size & 0b10) ? A64_FRINT_VEC : A64_FRINTX_VEC;
+				inst.frint.mode = FPR_CURRENT;
+			} else {
+				inst.op = A64_FRINT_VEC;
+				inst.frint.mode = (size & 0b10) ? FPR_ZERO : FPR_NEG_INF;
+			}
+			break;
+		case 0b11010: is_fp = true; inst.op = A64_FCVT_VEC; inst.fcvt.mode = (size & 0b10) ? FPR_POS_INF : FPR_TIE_EVEN; set_signedness = 1; set_scalarity = 1; break;
+		case 0b11011: is_fp = true; inst.op = A64_FCVT_VEC; inst.fcvt.mode = (size & 0b10) ? FPR_ZERO : FPR_NEG_INF; set_signedness = 1; set_scalarity = 1; break;
+		case 0b11100:
+			is_fp = true; // URECPE, URSQRTE not actually FP, but still only use the size<0> bit to encode size
+			if (size & 0b10) {
+				inst.op = (U) ? A64_URSQRTE : A64_URECPE;
+			} else {
+				inst.op = A64_FCVT_VEC;
+				inst.fcvt.mode = FPR_TIE_AWAY;
+				set_signedness = 1;
+				set_scalarity = 1;
+			}
+			break;
+		case 0b11101:
+			is_fp = true;
+			if (size & 0b10) {
+				inst.op = (U) ? A64_FRSQRTE : A64_FRECPE;
+			} else {
+				inst.op = A64_CVTF_VEC;
+				set_signedness = 1;
+				set_scalarity = 1;
+			}
+			break;
+		case 0b11110:
+			is_fp = true;
+			inst.op = (U) ? A64_FRINTX_VEC : A64_FRINT_VEC;
+			inst.frint.bits = 32;
+			inst.frint.mode = (U) ? FPR_CURRENT : FPR_ZERO;
+			break;
+		case 0b11111:
+			is_fp = true;
+			if (size & 0b10) {
+				inst.op = (U) ? A64_FSQRT_VEC : A64_FRECPX;
+				set_scalarity = 1;
+			} else {
+				inst.op = (U) ? A64_FRINTX_VEC : A64_FRINT_VEC;
+				inst.frint.bits = 64;
+				inst.frint.mode = (U) ? FPR_CURRENT : FPR_ZERO;
+			}
+			break;
+		default:
+			return errinst("SIMD/TwoRegMisc: bad opcode");
+		}
+
+		if (set_signedness) {
+			inst.flags |= (U) ? 0 : SIMD_SIGNED;
+			if (inst.op == A64_FCVT_VEC || inst.op == A64_CVTF_VEC)
+				inst.fcvt.sgn = !U;
+		}
+
+		if (set_scalarity)
+			inst.flags |= (scalar) ? SIMD_SCALAR : 0;
+
+		// The floating-point instructions use the upper bit of size(2) to differentiate
+		// instructions, leaving only the lower bit to toggle between single and double
+		// precision.
+		if (is_fp)
+			inst.flags = set_vec_arrangement(inst.flags, (((size&1) ? FSZ_D : FSZ_S) << 1) | Q);
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		break;
+	}
 	case Reduce:
 		return errinst("SIMD/Reduce: not yet implemented");
 	case ThreeDiff:

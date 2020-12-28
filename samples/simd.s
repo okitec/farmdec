@@ -193,3 +193,90 @@ modifiedimm:
 	fmov v1.8h, #1.5
 	fmov v1.4s, #1.5
 	fmov v1.2d, #1.5
+
+tworegmisc:
+	rev16 v1.8b, v2.8b
+	rev32 v1.8h, v2.8h
+	rev64 v1.2s, v2.2s
+	saddlp v1.2d, v2.4s
+	suqadd v1.2s, v2.2s
+	suqadd s1, s2
+	usqadd v1.2d, v2.2d
+	usqadd d1, d2
+	cls v1.8b, v2.8b
+	clz v1.4s, v2.4s
+	cnt v1.16b, v2.16b
+	not v1.16b, v2.16b
+	rbit v1.8b, v2.8b
+	sadalp v1.1d, v2.2s
+	sqabs v1.2d, v2.2d
+	sqabs d1, d2
+	sqneg v1.2d, v2.2d
+	sqneg d1, d2
+	cmgt v1.2s, v2.2s, #0
+	cmgt d1, d2, #0
+	cmge v1.2s, v2.2s, #0
+	cmge d1, d2, #0
+	cmeq v1.2s, v2.2s, #0
+	cmeq d1, d2, #0
+	cmle v1.2s, v2.2s, #0
+	cmle d1, d2, #0
+	cmlt v1.2s, v2.2s, #0
+	cmlt d1, d2, #0
+	abs v1.8b, v2.8b
+	abs d1, d2
+	neg v1.2s, v2.2s
+	neg d1, d2
+	xtn2 v1.16b, v2.8h
+	sqxtun v1.4h, v2.4s
+	sqxtun s1, d2
+	uqxtn v1.4h, v2.4s
+	sqxtn2 v1.4s, v2.2d
+	uqxtn s1, d2
+	fcvtn v1.4h, v2.4s
+	fcvtxn v1.2s, v2.2d
+	fcvtxn s1, d2
+	fcvtl v1.4s, v2.4h
+	frintn v1.2d, v2.2d
+	frinta v1.2d, v2.2d
+	frintm v1.2d, v2.2d
+	frintp v1.2d, v2.2d
+	frintz v1.2d, v2.2d
+	frinti v1.2d, v2.2d
+	frintx v1.2d, v2.2d
+	frint32z v1.2d, v2.2d
+	frint32x v1.2d, v2.2d
+	frint64z v1.2d, v2.2d
+	frint64x v1.2d, v2.2d
+	fcvtns v1.2d, v2.2d
+	fcvtnu v1.2d, v2.2d
+	fcvtas v1.2d, v2.2d
+	fcvtau v1.2d, v2.2d
+	fcvtms v1.2d, v2.2d
+	fcvtmu v1.2d, v2.2d
+	fcvtzs v1.2d, v2.2d
+	fcvtzu v1.2d, v2.2d
+	fcvtps v1.2d, v2.2d
+	fcvtpu v1.2d, v2.2d
+	ucvtf v1.2d, v2.2d
+	scvtf v1.2d, v2.2d
+	fcmgt v1.2s, v2.2s, #0
+	fcmgt d1, d2, #0
+	fcmge v1.2s, v2.2s, #0
+	fcmge d1, d2, #0
+	fcmeq v1.2s, v2.2s, #0
+	fcmeq d1, d2, #0
+	fcmle v1.2s, v2.2s, #0
+	fcmle d1, d2, #0
+	fcmlt v1.2s, v2.2s, #0
+	fcmlt d1, d2, #0
+	fabs v1.2d, v2.2d
+	fneg v1.2d, v2.2d
+	urecpe v1.2s, v2.2s
+	ursqrte v1.4s, v2.4s
+	frecpe v1.2s, v2.2s
+	frecpe d1, d2
+	frsqrte v1.4s, v2.4s
+	frsqrte d1, d2
+	fsqrt v1.4s, v2.4s
+	frecpx d1, d2
