@@ -2009,12 +2009,47 @@ static Inst decode_simd(u32 binst) {
 	switch (kind) {
 	case Unknown:
 		return errinst("SIMD: bad instruction");
-	case TableLookup:
-		return errinst("SIMD/TableLookup: not yet implemented");
-	case Permute:
-		return errinst("SIMD/Permute: not yet implemented");
-	case Extract:
-		return errinst("SIMD/Extract: not yet implemented");
+	case TableLookup: {
+		bool tbx = (binst >> 12) & 1;
+		u8 len = (binst >> 13) & 0b11; // #regs = len + 1
+		inst.op = (tbx) ? A64_TBX : A64_TBL;
+		inst.imm = len + 1;
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst); // table stored in Vn and successors (modulo 32)
+		inst.rm = regRm(binst);
+		break;
+	}
+	case Permute: {
+		u8 opcode = (binst >> 12) & 0b111;
+		switch (opcode) {
+		case 0b001: inst.op = A64_UZP1; break;
+		case 0b010: inst.op = A64_TRN1; break;
+		case 0b011: inst.op = A64_ZIP1; break;
+		case 0b101: inst.op = A64_UZP2; break;
+		case 0b110: inst.op = A64_TRN2; break;
+		case 0b111: inst.op = A64_ZIP2; break;
+		default:
+			return errinst("SIMD/Permute: bad opcode");
+		}
+
+		// Standard vector arrangement in size:Q, as set by the default handling
+		// at the top of decode_simd.
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		break;
+	}
+	case Extract: {
+		u8 imm4 = (binst >> 11) & 0b1111; // stores the index
+		inst.op = A64_EXT;
+		inst.flags = set_vec_arrangement(inst.flags, (Q) ? VA_16B : VA_8B);
+		inst.imm = (Q) ? imm4 : (imm4 & 0b111);
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		break;
+	}
 	case Copy: {
 		u8 imm4 = (binst >> 11) & 0b1111; // really not an immediate, more of an opcode
 		u8 imm5 = (binst >> 16) & 0b11111;

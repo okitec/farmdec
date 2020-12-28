@@ -99,3 +99,27 @@ threesame:
 	frecps v1.2s, v2.2s, v3.2s
 	frsqrts v1.2s, v2.2s, v3.2s
 	fdiv v1.2s, v2.2s, v3.2s
+
+extract:
+	ext v1.8b, v2.8b, v3.8b, #7
+	ext v1.16b, v2.16b, v3.16b, #15
+
+table:
+	tbl v1.8b, {v2.16b}, v3.8b
+	tbl v1.16b, {v2.16b}, v3.16b
+	tbl v1.8b, {v2.16b, v3.16b}, v4.8b
+	tbl v1.8b, {v2.16b, v3.16b, v4.16b}, v5.8b
+	tbl v1.8b, {v2.16b, v3.16b, v4.16b, v5.16b}, v6.8b
+	tbx v1.8b, {v2.16b}, v3.8b
+	tbx v1.16b, {v2.16b}, v3.16b
+	tbx v1.8b, {v2.16b, v3.16b}, v4.8b
+	tbx v1.8b, {v2.16b, v3.16b, v4.16b}, v5.8b
+	tbx v1.8b, {v2.16b, v3.16b, v4.16b, v5.16b}, v6.8b
+
+permute:
+	uzp1 v1.2d, v2.2d, v3.2d
+	uzp2 v1.2s, v2.2s, v3.2s
+	trn1 v1.8h, v2.8h, v3.8h
+	trn2 v1.4h, v2.4h, v3.4h
+	zip1 v1.16b, v2.16b, v3.16b
+	zip2 v1.8b, v2.8b, v3.8b

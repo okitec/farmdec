@@ -555,8 +555,8 @@ enum Op {
 	A64_MOVI,     // includes MVNI
 	A64_SMOV,     // Xd ← sext(Src[i])
 	A64_UMOV,     // Xd ← Src[i]
-	A64_TBL,
-	A64_TBX,
+	A64_TBL,      // Inst.imm := #regs of table ∈ {1,2,3,4}
+	A64_TBX,      // ---
 	A64_TRN1,
 	A64_TRN2,
 	A64_UZP1,
