@@ -474,7 +474,7 @@ enum Op {
 	A64_FMULX_VEC,
 	A64_FDIV_VEC,
 	A64_FADD_VEC,
-	A64_FCADD, // complex addition
+	A64_FCADD, // complex addition; Inst.imm := rotation in degrees (90, 270)
 	A64_FSUB_VEC,
 	A64_FMAX_VEC,
 	A64_FMAXNM_VEC,
@@ -492,8 +492,8 @@ enum Op {
 	A64_FMLA_VEC,
 	A64_FMLAL_ELEM,
 	A64_FMLAL_VEC,
-	A64_FCMLA_ELEM,
-	A64_FCMLA_VEC,
+	A64_FCMLA_ELEM, // Inst.imm := rotation in degrees (0, 90, 180, 270)
+	A64_FCMLA_VEC,  // ---
 	A64_FMLS_ELEM,
 	A64_FMLS_VEC,
 	A64_FMLSL_ELEM,
@@ -613,7 +613,7 @@ enum Op {
 	A64_MIN_VEC,
 
 	A64_DOT_ELEM,
-	A64_DOT_VEC,
+	A64_DOT_VEC, // Inst.flags.vec = arrangement of destination (2s, 4s); sources are (8b, 16b)
 
 	// SIMD Integer unsigned/signed shifts
 	A64_SHL_REG,  // SSHL, USHL, SRSHL, URSHL

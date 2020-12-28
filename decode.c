@@ -2132,8 +2132,36 @@ static Inst decode_simd(u32 binst) {
 		inst.rn = regRn(binst);
 		break;
 	}
-	case ThreeSameExtra:
-		return errinst("SIMD/ThreeSameExtra: not yet implemented");
+	case ThreeSameExtra: {
+		u8 opcode = (binst >> 11) & 0b1111;
+		switch (opcode) {
+		case 0b0000: inst.op = A64_SQRDMLAH_VEC; inst.flags |= (scalar) ? SIMD_SCALAR : 0; break;
+		case 0b0001: inst.op = A64_SQRDMLSH_VEC; inst.flags |= (scalar) ? SIMD_SCALAR : 0; break;
+		case 0b0010: inst.op = A64_DOT_VEC;      inst.flags |= (U) ? 0 : SIMD_SIGNED;      break;
+		case 0b1000:
+		case 0b1001:
+		case 0b1010:
+		case 0b1011: // 10xx (xx = rot)
+			inst.op = A64_FCMLA_VEC;
+			switch (opcode & 0b11) {
+			case 0b00: inst.imm =   0; break;
+			case 0b01: inst.imm =  90; break;
+			case 0b10: inst.imm = 180; break;
+			case 0b11: inst.imm = 270; break;
+			}
+			break;
+		case 0b1100:
+		case 0b1110: // 11x0 (x = rot)
+			inst.op = A64_FCADD;
+			inst.imm = ((opcode >> 1) & 1) ? 270 : 90;
+			break;
+		}
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		break;
+	}
 	case TwoRegMisc:
 		return errinst("SIMD/TwoRegMisc: not yet implemented");
 	case Reduce:

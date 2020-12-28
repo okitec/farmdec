@@ -123,3 +123,17 @@ permute:
 	trn2 v1.4h, v2.4h, v3.4h
 	zip1 v1.16b, v2.16b, v3.16b
 	zip2 v1.8b, v2.8b, v3.8b
+
+threesameextra:
+	sqrdmlah v1.4s, v2.4s, v3.4s
+	sqrdmlah h1, h2, h2
+	sqrdmlsh v1.8h, v2.8h, v3.8h
+	sqrdmlsh s1, s2, s3
+	sdot v1.2s, v2.8b, v3.8b
+	udot v1.4s, v2.16b, v3.16b
+	fcmla v1.2d, v2.2d, v3.2d, #0
+	fcmla v1.2d, v2.2d, v3.2d, #90
+	fcmla v1.2d, v2.2d, v3.2d, #180
+	fcmla v1.2d, v2.2d, v3.2d, #270
+	fcadd v1.4s, v2.4s, v3.4s, #90
+	fcadd v1.4s, v2.4s, v3.4s, #270
