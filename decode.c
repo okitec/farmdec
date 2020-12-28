@@ -2238,8 +2238,81 @@ static Inst decode_simd(u32 binst) {
 	}
 	case ModifiedImm:
 		return errinst("SIMD/ModifiedImm: not yet implemented");
-	case ShiftByImm:
-		return errinst("SIMD/ShiftByImm: not yet implemented");
+	case ShiftByImm: {
+		u8 opcode = (binst >> 11) & 0b11111;
+		bool set_signedness = true; // set Inst.flags.signed = NOT (<U bit>)?
+		bool set_scalarity = true;  // set Inst.flags.scalar = <scalar bit>?
+		bool left_shift = false;
+
+		switch (opcode) {
+		case 0b00000: inst.op = A64_SHR_IMM; break;
+		case 0b00010: inst.op = A64_SRA_IMM; break;
+		case 0b00100: inst.op = A64_SHR_IMM; inst.flags |= SIMD_ROUND; break;
+		case 0b00110: inst.op = A64_SRA_IMM; inst.flags |= SIMD_ROUND; break;
+		case 0b01010: inst.op = (U) ? A64_SLI : A64_SHL_IMM; left_shift = 1; set_signedness = 0; break;
+		case 0b01110: inst.op = A64_QSHL_IMM; left_shift = 1; break;
+		case 0b10000:
+		case 0b10001: // 1000x (x = round?)
+			inst.op = (U) ? A64_SQSHRUN : A64_SHRN;
+			set_signedness = 0;
+			set_scalarity = 0;
+			inst.flags |= (opcode & 1) ? SIMD_ROUND : 0;
+			break;
+		case 0b10010: inst.op = A64_QSHRN; break;
+		case 0b10011: inst.op = A64_QSHRN; inst.flags |= SIMD_ROUND; break;
+		case 0b10100: inst.op = A64_SHLL; left_shift = 1; set_scalarity = 0; break;
+		case 0b11100: inst.op = A64_CVTF_VEC; break; // fixed-point
+		case 0b11111: inst.op = A64_FCVT_VEC; break; // fixed-point
+		default:
+			return errinst("SIMD/ShiftByImm: bad opcode");
+		}
+
+		if (set_signedness)
+			inst.flags |= (U) ? 0 : SIMD_SIGNED;
+
+		if (set_scalarity)
+			inst.flags |= (scalar) ? SIMD_SCALAR : 0;
+
+		u8 immh = (binst >> 19) & 0b1111;   // immh -- encodes size
+		u8 immh_immb = (binst >> 16) & 0b1111111; // immh:immb -- encodes immediate (shift amount)
+		FPSize size;
+
+		if (immh == 0b0000)
+			return errinst("SIMD/ShiftByImm: internal decoding to kind failed: immh=0000 → ModifiedImm");
+		else if ((immh & 0b1111) == 0b0001)
+			size = FSZ_B;
+		else if ((immh & 0b1110) == 0b0010)
+			size = FSZ_H;
+		else if ((immh & 0b1100) == 0b0100)
+			size = FSZ_S;
+		else if ((immh & 0b1000) == 0b1000)
+			size = FSZ_D;
+		else
+			return errinst("SIMD/ShiftByImm: bad immediate");
+
+		uint imm = 0; // shift amount (or fractional bits for fixed-point CVTF, FCVT)
+		switch (size) {
+		case FSZ_B: imm = (left_shift) ? immh_immb -  8 :  16 - immh_immb; break;
+		case FSZ_H: imm = (left_shift) ? immh_immb - 16 :  32 - immh_immb; break;
+		case FSZ_S: imm = (left_shift) ? immh_immb - 32 :  64 - immh_immb; break;
+		case FSZ_D: imm = (left_shift) ? immh_immb - 64 : 128 - immh_immb; break;
+		default:
+			return errinst("SIMD/ShiftByImm: bad immediate");
+		}
+
+		if (inst.op == A64_CVTF_VEC || inst.op == A64_FCVT_VEC) {
+			inst.fcvt.mode = FPR_ZERO;
+			inst.fcvt.fbits = imm;
+			inst.fcvt.sgn = !U;
+		} else {
+			inst.imm = imm;
+		}
+
+		inst.flags = set_vec_arrangement(inst.flags, (size << 1) | Q);
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		break;
+	}
 	case IndexedElem:
 		return errinst("SIMD/IndexedElem: not yet implemented");
 	}
