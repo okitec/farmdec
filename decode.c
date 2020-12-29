@@ -2191,7 +2191,7 @@ static Inst decode_simd(u32 binst) {
 		case 0b01111: is_fp = true; inst.op = (U) ? A64_FNEG_VEC : A64_FABS_VEC; set_scalarity = 1; break;
 		case 0b10010: inst.op = (U) ? A64_SQXTUN : A64_XTN; set_scalarity = 1; break;
 		case 0b10100: inst.op = A64_QXTN; set_signedness = 1; set_scalarity = 1; break;
-		case 0b10110: is_fp = true; inst.op = (U) ? A64_FCVTXN : A64_FCVTN; set_scalarity = 1; break;
+		case 0b10110: is_fp = true; inst.op = (U) ? A64_FCVTXN : A64_FCVTN; set_scalarity = 1; break; // XXX FCVTXN vector arrangement is wrong -- the destination type Tb is 2s or 4s depending on sz:Q.
 		case 0b10111: is_fp = true; inst.op = A64_FCVTL; break;
 		case 0b11000:
 			is_fp = true;
@@ -2271,8 +2271,66 @@ static Inst decode_simd(u32 binst) {
 		inst.rn = regRn(binst);
 		break;
 	}
-	case Reduce:
-		return errinst("SIMD/Reduce: not yet implemented");
+	case Reduce: {
+		u8 opcode = (binst >> 12) & 0b11111;
+		bool set_signedness = false; // set Inst.flags.signed = NOT (<U bit>)?
+		VectorArrangement va = -1;
+		bool is_fmin = (size & 0b10) != 0;
+
+		inst.flags |= (scalar) ? SIMD_SCALAR : 0;
+
+		switch (opcode) {
+		case 0b00011: inst.op = A64_ADDLV; set_signedness = 1; break;
+		case 0b01010: inst.op = A64_MAXV;  set_signedness = 1; break;
+		case 0b11010: inst.op = A64_MINV;  set_signedness = 1; break;
+		case 0b11011: inst.op = (scalar) ? A64_ADDP : A64_ADDV; break;
+		case 0b01100:
+			if (scalar) {
+				inst.op = (is_fmin) ? A64_FMINNMP : A64_FMAXNMP;
+				if (U) {
+					va = (size&1) ? VA_2D : VA_2S;
+				} else {
+					va = VA_4H; // actually 2H (which does not exist)
+				}
+			} else {
+				inst.op = (is_fmin) ? A64_FMINNMV : A64_FMAXNMV;
+				va = (((U) ? FSZ_H : ((size&1) ? FSZ_D : FSZ_S)) << 1) | Q;
+			}
+
+			break;
+		case 0b01101:
+			inst.op = A64_FADDP;
+			if (U) {
+				va = (size&1) ? VA_2D : VA_2S;
+			} else {
+				va = VA_4H; // actually 2H (which does not exist)
+			}
+			break;
+		case 0b01111:
+			if (scalar) {
+				inst.op = (is_fmin) ? A64_FMINP : A64_FMAXP;
+				if (U) {
+					va = (size&1) ? VA_2D : VA_2S;
+				} else {
+					va = VA_4H; // actually 2H (which does not exist)
+				}
+			} else {
+				inst.op = (is_fmin) ? A64_FMINV : A64_FMAXV;
+				va = (((U) ? FSZ_H : ((size&1) ? FSZ_D : FSZ_S)) << 1) | Q;
+			}
+			break;
+		}
+
+		if (set_signedness)
+			inst.flags |= (U) ? 0 : SIMD_SIGNED;
+
+		if (va != -1)
+			inst.flags = set_vec_arrangement(inst.flags, va);
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		break;
+	}
 	case ThreeDiff:
 		return errinst("SIMD/ThreeDiff: not yet implemented");
 	case ThreeSame: {

@@ -280,3 +280,24 @@ tworegmisc:
 	frsqrte d1, d2
 	fsqrt v1.4s, v2.4s
 	frecpx d1, d2
+
+reduce:
+	saddlv d1, v2.4s
+	uaddlv s1, v2.8h
+	smaxv s1, v2.4s
+	umaxv h1, v2.4h
+	sminv b1, v2.16b
+	uminv h1, v2.8h
+	addv b1, v2.8b
+	addp d1, v2.2d
+	fmaxnmv s1, v2.4s
+	fminnmv h1, v2.8h
+	fmaxnmp d1, v2.2d
+	fminnmp s1, v2.2s
+	faddp h1, v2.2h
+	faddp s1, v2.2s
+	faddp d1, v2.2d
+	fmaxv s1, v2.4s
+	fminv h1, v2.8h
+	fmaxp d1, v2.2d
+	fminp s1, v2.2s
