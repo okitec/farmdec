@@ -1397,10 +1397,10 @@ static Inst loads_and_stores(u32 binst) {
 			}
 		} else {
 			switch (top2) { // opc
-			case 0b00: inst.flags = W32 | set_mem_extend(inst.flags, SZ_W); break;         // 32-bit LDR
-			case 0b01: inst.flags = set_mem_extend(inst.flags, SZ_X); break;               // 64-bit LDR
-			case 0b10: inst.flags = set_mem_extend(inst.flags, SXTW); break;               // LDRSW
-			case 0b11: return errinst("loads_and_stores/Literal: PRFM not yet supported"); // XXX PRFM
+			case 0b00: inst.flags = W32 | set_mem_extend(inst.flags, SZ_W); break; // 32-bit LDR
+			case 0b01: inst.flags = set_mem_extend(inst.flags, SZ_X); break;       // 64-bit LDR
+			case 0b10: inst.flags = set_mem_extend(inst.flags, SXTW); break;       // LDRSW
+			case 0b11: inst.op = A64_PRFM; break;                                  // PRFM (literal)
 			}
 		}
 
@@ -1455,7 +1455,7 @@ static Inst loads_and_stores(u32 binst) {
 		inst.rt2 = (binst >> 10) & 0b11111;
 		break;
 	}
-	case UnscaledImm: // fall through -- like Register, but with different immediate (and LDUR/STUR opcodes)
+	case UnscaledImm: // fall through -- like Register, but with different immediate
 	case Register: {
 		bool vector = (binst >> 26) & 1;
 		bool load = false;
@@ -1506,10 +1506,25 @@ static Inst loads_and_stores(u32 binst) {
 			case 0b00: load = false; sign_extend = 0; break; // store
 			case 0b01: load = true;  sign_extend = 0; break; // load
 			case 0b10: // load, sign-extend to 64 bit
-				if (size == SZ_X) {
-					// XXX PRFM -- prefetch memory
-					return errinst("loads_and_stores/Register: PRFM not yet implemented");
+				if (size == SZ_X) { // PRFM (unsigned immediate, extended register or unscaled offset)
+					inst.op = A64_PRFM;
+					inst.rt = regRd(binst); // encodes prfop
+					inst.rn = regRnSP(binst);
+
+					if (fad_get_addrmode(inst.flags) == AM_OFF_EXT) {
+						inst.extend.type = (binst >> 13) & 0b111;      // option(3)
+						inst.extend.lsl = ((binst >> 12) & 1) ? 3 : 0; // S(1)
+						inst.rm = regRmSP(binst);
+					} else if (kind == UnscaledImm) {
+						u32 imm9 = (binst >> 12) & 0b111111111;
+						inst.offset = sext(imm9, 9);
+					} else { // unsigned immediate
+						uint imm12 = (binst >> 10) & 0b111111111111;
+						inst.offset = 8 * imm12; // scale: 8
+					}
+					return inst;
 				}
+
 				load = true;
 				sign_extend = 1;
 				w32 = false;

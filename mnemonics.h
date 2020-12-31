@@ -174,6 +174,7 @@ char *mnemonics[] = {
 	"str",
 	"ldr_fp",
 	"str_fp",
+	"prfm",
 	"ldadd",
 	"ldclr",
 	"ldeor",

@@ -348,6 +348,18 @@ enum Op {
 	A64_LDR_FP,
 	A64_STR_FP,
 
+	// Prefetch memory
+	//
+	// The exact prefetch operation is stored in Inst.rt := Rt.
+	// We cannot use a "struct prfm" because the addressing mode-specific
+	// data (offset, .extend) already occupies the space.
+	//
+	// PRFM (literal)          -- AM_LITERAL
+	// PRFM (register)         -- AM_OFF_EXT
+	// PRFM (immediate)        -- AM_OFF_IMM
+	// PRFUM (unscaled offset) -- AM_OFF_IMM
+	A64_PRFM,
+
 	// Atomic memory operations
 	//
 	// Whether the instruction has load-acquire (e.g. LDADDA*), load-acquire/
