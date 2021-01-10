@@ -2461,9 +2461,12 @@ static Inst decode_simd(u32 binst) {
 		case 0b1110: // 1110 → MOVI(8), MOVI(64, vec), MOVI(64, scalar)
 			inst.op = A64_MOVI;
 			if (op == 0) {
+				inst.flags = set_vec_arrangement(inst.flags, (FSZ_B << 1) | Q);
 				inst.imm = imm8;
 			} else {
 				inst.flags |= (Q) ? 0 : SIMD_SCALAR;
+				inst.flags = set_vec_arrangement(inst.flags, (FSZ_D << 1) | Q);
+
 				// 8 x a : 8 x b : ... : 8 x h
 				u64 abyte = (imm8 & 0b10000000) ? 0xff : 0;
 				u64 bbyte = (imm8 & 0b01000000) ? 0xff : 0;
