@@ -2633,42 +2633,48 @@ static double vfp_expand_imm(u8 imm8) {
 // decode decodes n binary instructions from the input buffer and
 // puts them in the output buffer, which must have space for n Insts.
 int fad_decode(u32 *in, uint n, Inst *out) {
+	Inst inst;
 	uint i;
 	for (i = 0; i < n; i++) {
 		u32 binst = in[i];
 		u32 op0 = (binst >> 25) & 0b1111;
 		switch (op0) {
 		case 0b0000:
-			out[i] = (Inst){
+			inst = (Inst){
 				op: A64_UDF,
 			};
 			break;
 		case 0b1000:
 		case 0b1001: // 100x
-			out[i] = data_proc_imm(binst);
+			inst = data_proc_imm(binst);
 			break;
 		case 0b1010:
 		case 0b1011: // 101x
-			out[i] = branches(binst);
+			inst = branches(binst);
 			break;
 		case 0b0100:
 		case 0b0110:
 		case 0b1100:
 		case 0b1110: // x1x0
-			out[i] = loads_and_stores(binst);
+			inst = loads_and_stores(binst);
 			break;
 		case 0b0101:
 		case 0b1101: // x101
-			out[i] = data_proc_reg(binst);
+			inst = data_proc_reg(binst);
 			break;
 		case 0b0111:
 		case 0b1111: // x111
-			out[i] = data_proc_float_and_simd(binst);
+			inst = data_proc_float_and_simd(binst);
 			break;
 		default:
-			out[i] = UNKNOWN_INST;
+			inst = UNKNOWN_INST;
 			break;
 		}
+
+		if (inst.op == A64_UNKNOWN) {
+			inst.imm = binst;
+		}
+		out[i] = inst;
 	}
 	return i;
 }

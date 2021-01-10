@@ -54,7 +54,15 @@ int main(int argc, char **argv) {
 
 
 		switch (inst.op) {
-		case A64_UNKNOWN: printf("%04x ???\n", 4*i);                      continue;
+		case A64_UNKNOWN: {
+			u32 binst = inst.imm;
+
+			// Print unknown instruction as little-endian hex bytes. This format
+			// can be used by the Online Disassembler (ODA).
+			printf("%04x ??? %02x %02x %02x %02x\n", 4*i, (binst>>0) & 0xff, (binst>>8) & 0xff,
+				(binst>>16) & 0xff, (binst>>24) & 0xff);
+			continue;
+		}
 		case A64_ERROR:   printf("%04x error \"%s\"\n", 4*i, inst.error); continue;
 		case A64_UDF:     printf("%04x udf\n", 4*i);                      continue;
 		default:

@@ -60,7 +60,7 @@ typedef u8 Reg;
 // modes of loads and stores are encoded similarly. See the Inst
 // structure for more detail.
 enum Op {
-	A64_UNKNOWN, // unknown instruction (or Op field not set by accident)
+	A64_UNKNOWN, // unknown instruction (or Op field not set, by accident), Inst.imm contains raw binary instruction
 	A64_ERROR,   // invalid instruction, Inst.error contains error string
 	A64_UDF,     // throws undefined exception
 
@@ -909,7 +909,7 @@ struct Inst {
 	union {
 		Reg rm;  // second operand, read-only - Rm; index register for AM_OFF_REG, AM_OFF_EXT
 		Reg rt2; // second destination/source register for LDP, STP and variants (e.g. LDXP)
-		Reg rs;  // status register for atomic operations
+		Reg rs;  // operand register for atomic operations
 	};
 	union {
 		u64 imm;     // single immediate
