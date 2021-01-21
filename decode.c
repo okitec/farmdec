@@ -2309,7 +2309,7 @@ static Inst decode_simd(u32 binst) {
 				}
 			} else {
 				inst.op = (is_fmin) ? A64_FMINNMV : A64_FMAXNMV;
-				va = (((U) ? FSZ_H : ((size&1) ? FSZ_D : FSZ_S)) << 1) | Q;
+				va = (((U) ? ((size&1) ? FSZ_D : FSZ_S) : FSZ_H) << 1) | Q;
 			}
 
 			break;
@@ -2331,7 +2331,7 @@ static Inst decode_simd(u32 binst) {
 				}
 			} else {
 				inst.op = (is_fmin) ? A64_FMINV : A64_FMAXV;
-				va = (((U) ? FSZ_H : ((size&1) ? FSZ_D : FSZ_S)) << 1) | Q;
+				va = (((U) ? ((size&1) ? FSZ_D : FSZ_S) : FSZ_H) << 1) | Q;
 			}
 			break;
 		}
