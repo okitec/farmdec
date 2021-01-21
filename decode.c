@@ -1213,11 +1213,11 @@ static Inst loads_and_stores(u32 binst) {
 		inst.simd_ldst.nreg = nreg;
 		inst.rt = regRd(binst);
 		inst.rn = regRnSP(binst);
+		inst.rm = regRm(binst);
 
 		// Post-indexed addrmode, either register-based or an immediate that
 		// depends on the number of bytes read/written.
 		if (fad_get_addrmode(inst.flags) == AM_POST) {
-			inst.rm = regRm(binst);
 			if (inst.rm == ZERO_REG) {
 				switch (Q) {
 				case 0: inst.simd_ldst.offset = nreg *  8; break; //  64-bit half vectors
@@ -2363,7 +2363,7 @@ static Inst decode_simd(u32 binst) {
 			// size acts as sub-opcode
 			switch (size) {
 			case 0b00: inst.op = (U) ? A64_EOR_VEC : A64_AND_VEC;     break;
-			case 0b01: inst.op = (U) ? A64_BSL     : A64_BIC;         break;
+			case 0b01: inst.op = (U) ? A64_BSL     : A64_BIC_VEC_REG; break;
 			case 0b10: inst.op = (U) ? A64_BIT     : A64_ORR_VEC_REG; break;
 			case 0b11: inst.op = (U) ? A64_BIF     : A64_ORN_VEC;     break;
 			}
