@@ -66,6 +66,10 @@ static u8 set_prec(u8 flags, FPSize prec) {
 	return ((prec&0b111) << 1) | (flags&0b11110001);
 }
 
+FPSize fad_size_from_vec_arrangement(VectorArrangement va) {
+	return (FPSize)(va >> 1);
+}
+
 // The destination register Rd, if present, occupies bits 0..4.
 // Register 31 is treated as the Zero/Discard register ZR/WZR.
 static Reg regRd(u32 binst) {

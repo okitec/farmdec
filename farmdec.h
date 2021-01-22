@@ -994,6 +994,7 @@ extern "C" {
 	farmdec::ExtendType fad_get_mem_extend(u8 flags);
 	farmdec::VectorArrangement fad_get_vec_arrangement(u8 flags);
 	farmdec::FPSize fad_get_prec(u8 flags);
+	farmdec::FPSize fad_size_from_vec_arrangement(farmdec::VectorArrangement);
 	int fad_decode(u32 *in, uint n, farmdec::Inst *out);
 }
 #else
@@ -1002,6 +1003,7 @@ extern "C" {
 	ExtendType fad_get_mem_extend(u8 flags);
 	VectorArrangement fad_get_vec_arrangement(u8 flags);
 	FPSize fad_get_prec(u8 flags);
+	FPSize fad_size_from_vec_arrangement(VectorArrangement);
 	int fad_decode(u32 *in, uint n, Inst *out);
 #endif
 
