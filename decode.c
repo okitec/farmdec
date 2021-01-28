@@ -111,7 +111,7 @@ static Reg regRmSP(u32 binst) {
 //
 // Taken from https://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend
 static s64 sext(u64 x, u8 b) {
-	s64 mask = 1U << (b - 1);
+	s64 mask = (s64)1 << (b - 1);
 	return (((s64)x) ^ mask) - mask;
 }
 
@@ -187,9 +187,9 @@ static Inst data_proc_imm(u32 binst) {
 		inst.flags &= ~W32; // no 32-bit variant of these
 
 		// First, just extract the immediate.
-		u32 immhi = binst & (0b111111111111111111 << 5);
-		u32 immlo = top3 & 0b011;
-		u32 uimm = (immhi >> (5-2)) | immlo; // pos(immhi) = 5; 2: len(immlo)
+		u64 immhi = binst & (0b1111111111111111111 << 5);
+		u64 immlo = top3 & 0b011;
+		u64 uimm = (immhi >> (5-2)) | immlo; // pos(immhi) = 5; 2: len(immlo)
 
 		u64 scale = (inst.op == A64_ADRP) ? 4096 : 1; // ADRP: Page (4K) Address
 		s64 simm = scale * sext(uimm, 21);            // PC-relative → signed
