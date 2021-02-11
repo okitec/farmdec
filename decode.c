@@ -2350,8 +2350,42 @@ static Inst decode_simd(u32 binst) {
 		inst.rn = regRn(binst);
 		break;
 	}
-	case ThreeDiff:
-		return errinst("SIMD/ThreeDiff: not yet implemented");
+	case ThreeDiff: {
+		u8 opcode = (binst >> 12) & 0b1111;
+		bool set_signedness = false; // set Inst.flags.signed = NOT (<U bit>)?
+		bool set_scalarity = false;  // set Inst.flags.scalar = <scalar bit>?
+
+		switch (opcode) {
+		case 0b0000: inst.op = A64_ADDL; set_signedness = true; break;
+		case 0b0001: inst.op = A64_ADDW; set_signedness = true; break;
+		case 0b0010: inst.op = A64_SUBL; set_signedness = true; break;
+		case 0b0011: inst.op = A64_SUBW; set_signedness = true; break;
+		case 0b0100: inst.op = A64_ADDHN; inst.flags |= (U) ? SIMD_ROUND : 0; break;
+		case 0b0101: inst.op = A64_ABAL; set_signedness = true; break;
+		case 0b0110: inst.op = A64_SUBHN; inst.flags |= (U) ? SIMD_ROUND : 0; break;
+		case 0b0111: inst.op = A64_ABDL; set_signedness = true; break;
+		case 0b1000: inst.op = A64_MLAL_VEC; set_signedness = true; break;
+		case 0b1001: inst.op = A64_SQDMLAL_VEC; inst.flags |= SIMD_SIGNED; set_scalarity = true; break;
+		case 0b1010: inst.op = A64_MLSL_VEC; set_signedness = true; break;
+		case 0b1011: inst.op = A64_SQDMLAL_VEC; inst.flags |= SIMD_SIGNED; set_scalarity = true; break;
+		case 0b1100: inst.op = A64_MULL_VEC; set_signedness = true; break;
+		case 0b1101: inst.op = A64_SQDMULL_VEC; inst.flags |= SIMD_SIGNED; set_scalarity = true; break;
+		case 0b1110: inst.op = A64_PMULL; break;
+		default:
+			return errinst("SIMD/ThreeDiff: bad obcode");
+		}
+
+		if (set_signedness)
+			inst.flags |= (U) ? 0 : SIMD_SIGNED;
+
+		if (set_scalarity)
+			inst.flags |= (scalar) ? SIMD_SCALAR : 0;
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst); 
+		break;
+	}
 	case ThreeSame: {
 		u8 opcode = (binst >> 11) & 0b11111;
 		bool set_signedness = false; // set Inst.flags.signed = NOT (<U bit>)?

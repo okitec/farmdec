@@ -22,6 +22,52 @@ simd_copy:
 	umov w1, v2.h[1]
 	umov x1, v2.d[1]
 
+threediff:
+	saddl  v0.2d, v1.2s, v2.2s
+	saddl2 v0.2d, v1.4s, v2.4s
+	uaddl  v0.4s, v1.4h, v2.4h
+	uaddl2 v0.4s, v1.8h, v2.8h
+	saddw  v0.2d, v1.2d, v2.2s
+	saddw2 v0.2d, v1.2d, v2.4s
+	uaddw  v0.2d, v1.2d, v2.2s
+	uaddw2 v0.2d, v1.2d, v2.4s
+	ssubl  v0.8h, v1.8b, v2.8b
+	ssubl2 v0.8h, v1.16b, v2.16b
+	usubl  v0.2d, v1.2s, v2.2s
+	usubl2 v0.2d, v1.4s, v2.4s
+	ssubw  v0.2d, v1.2d, v2.2s
+	ssubw2 v0.2d, v1.2d, v2.4s
+	usubw  v0.2d, v1.2d, v2.2s
+	usubw2 v0.2d, v1.2d, v2.4s
+	addhn  v0.2s, v1.2d, v2.2d
+	addhn2 v0.4s, v1.2d, v2.2d
+	raddhn v0.2s, v1.2d, v2.2d
+	subhn  v0.2s, v1.2d, v2.2d
+	subhn2 v0.4s, v1.2d, v2.2d
+	rsubhn v0.2s, v1.2d, v2.2d
+	sabal  v0.2d, v1.2s, v2.2s
+	sabal2 v0.2d, v1.4s, v2.4s
+	uabal  v0.4s, v1.4h, v2.4h
+	sabdl  v0.2d, v1.2s, v2.2s
+	sabdl2 v0.2d, v1.4s, v2.4s
+	uabdl  v0.4s, v1.4h, v2.4h
+	smlal  v0.2d, v1.2s, v2.2s
+	smlal2 v0.2d, v1.4s, v2.4s
+	sqdmlal  v0.2d, v1.2s, v2.2s
+	sqdmlal2 v0.2d, v1.4s, v2.4s
+	umlal  v0.4s, v1.4h, v2.4h
+	smlsl  v0.2d, v1.2s, v2.2s
+	smlsl2 v0.2d, v1.4s, v2.4s
+	sqdmlsl  v0.2d, v1.2s, v2.2s
+	sqdmlsl2 v0.2d, v1.4s, v2.4s
+	umlsl  v0.4s, v1.4h, v2.4h
+	smull  v0.2d, v1.2s, v2.2s
+	smull2 v0.2d, v1.4s, v2.4s
+	sqdmull  v0.2d, v1.2s, v2.2s
+	sqdmull2 v0.2d, v1.4s, v2.4s
+	umull  v0.4s, v1.4h, v2.4h
+	pmull v0.8h, v1.8b, v2.8b
+
 threesame:
 	shadd v1.2s, v2.2s, v3.2s
 	uhadd v1.16b, v2.16b, v3.16b
