@@ -529,7 +529,7 @@ enum Op {
 	A64_FMINNMP_VEC,
 	A64_FMINNMV,
 
-	// SIMD Bitwise: Logical, Pop Count, Bit Reversal, Byte Swap, Simple Left Shift
+	// SIMD Bitwise: Logical, Pop Count, Bit Reversal, Byte Swap, Shifts
 	A64_AND_VEC,
 	A64_BCAX, // ARMv8.2-SHA
 	A64_BIC_VEC_IMM,
@@ -553,9 +553,13 @@ enum Op {
 	A64_REV32_VEC,
 	A64_REV64_VEC,
 	A64_SHL_IMM,
-	A64_SHLL,
-	A64_SHRN, // SHRN, RSHRN
+	A64_SHL_REG, // SSHL, USHL, SRSHL, URSHL
+	A64_SHLL,    // SSHLL, USSHL
+	A64_SHR,     // SSHR, USHR, SRSHR, URSHR
+	A64_SHRN,    // SHRN, RSHRN
+	A64_SRA,     // SSRA, USRA, SRSRA, URSRA
 	A64_SLI,
+	A64_SRI,
 	A64_XAR, // ARMv8.2-SHA
 
 	// SIMD Copy, Table Lookup, Transpose, Extract, Insert, Zip, Unzip
@@ -627,13 +631,6 @@ enum Op {
 
 	A64_DOT_ELEM,
 	A64_DOT_VEC, // Inst.flags.vec = arrangement of destination (2s, 4s); sources are (8b, 16b)
-
-	// SIMD Integer unsigned/signed shifts
-	A64_SHL_REG,  // SSHL, USHL, SRSHL, URSHL
-	A64_SHLL_IMM, // SSHLL, USHLL
-	A64_SHR_IMM,  // SSHR, USHR, SRSHR, URSHR
-	A64_SHRL_IMM, // SSHRL, USHRL
-	A64_SRA_IMM,  // SSRA, USRA, SRSRA, URSRA
 
 	// SIMD Integer Stepwise (both are unsigned exclusive)
 	A64_URECPE,

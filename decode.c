@@ -2562,10 +2562,11 @@ static Inst decode_simd(u32 binst) {
 		bool left_shift = false;
 
 		switch (opcode) {
-		case 0b00000: inst.op = A64_SHR_IMM; break;
-		case 0b00010: inst.op = A64_SRA_IMM; break;
-		case 0b00100: inst.op = A64_SHR_IMM; inst.flags |= SIMD_ROUND; break;
-		case 0b00110: inst.op = A64_SRA_IMM; inst.flags |= SIMD_ROUND; break;
+		case 0b00000: inst.op = A64_SHR; break;
+		case 0b00010: inst.op = A64_SRA; break;
+		case 0b00100: inst.op = A64_SHR; inst.flags |= SIMD_ROUND; break;
+		case 0b00110: inst.op = A64_SRA; inst.flags |= SIMD_ROUND; break;
+		case 0b01000: inst.op = A64_SRI; break;
 		case 0b01010: inst.op = (U) ? A64_SLI : A64_SHL_IMM; left_shift = 1; set_signedness = 0; break;
 		case 0b01110: inst.op = A64_QSHL_IMM; left_shift = 1; break;
 		case 0b10000:
