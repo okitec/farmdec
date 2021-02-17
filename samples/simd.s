@@ -127,8 +127,8 @@ threesame:
 	fmaxnmp v1.2s, v2.2s, v3.2s
 	fmla v1.2s, v2.2s, v3.2s
 	fmls v1.2s, v2.2s, v3.2s
-	fmlal v1.2s, v2.2h, v3.2h
-	fmlsl v1.2s, v2.2h, v3.2h
+	fmlal2 v1.2s, v2.2h, v3.2h
+	fmlsl2 v1.2s, v2.2h, v3.2h
 	fadd v1.2s, v2.2s, v3.2s
 	fsub v1.2s, v2.2s, v3.2s
 	fabd v1.2s, v2.2s, v3.2s
@@ -138,6 +138,8 @@ threesame:
 	fcmeq v1.2s, v2.2s, v3.2s
 	fcmge v1.2s, v2.2s, v3.2s
 	fcmgt v1.2s, v2.2s, v3.2s
+	fmlal v1.2s, v2.2h, v3.2h
+	fmlsl v1.2s, v2.2h, v3.2h
 	facge v1.2s, v2.2s, v3.2s
 	facgt v1.2s, v2.2s, v3.2s
 	fmax v1.2s, v2.2s, v3.2s
@@ -347,3 +349,80 @@ reduce:
 	fminv h1, v2.8h
 	fmaxp d1, v2.2d
 	fminp s1, v2.2s
+
+indexedelem:
+	fmlal v0.2s, v1.2h, v2.h[3]
+	fmlal v0.4s, v1.4h, v2.h[3]
+	mla v0.4h, v1.4h, v2.h[3]
+	mla v0.8h, v1.8h, v2.h[7]
+	mla v0.2s, v1.2s, v2.s[1]
+	mla v0.4s, v1.4s, v2.s[3]
+	fmla s0, s1, v2.s[3]
+	fmla d0, d1, v2.d[1]
+	fmla v0.2s, v1.2s, v2.s[2]
+	fmla v0.2d, v1.2d, v2.d[1]
+	smlal v0.2d, v1.2s, v2.s[1]
+	smlal2 v0.2d, v1.4s, v2.s[3]
+	umlal v0.4s, v1.4h, v2.h[3]
+	umlal2 v0.4s, v1.8h, v2.h[2]
+	sqdmlal d0, s1, v2.s[1]
+	sqdmlal v0.2d, v1.2s, v2.s[1]
+	sqdmlal2 v0.2d, v1.4s, v2.s[3]
+
+	fmlsl v0.2s, v1.2h, v2.h[3]
+	fmlsl v0.4s, v1.4h, v2.h[3]
+	mls v0.4h, v1.4h, v2.h[3]
+	mls v0.8h, v1.8h, v2.h[7]
+	mls v0.2s, v1.2s, v2.s[1]
+	mls v0.4s, v1.4s, v2.s[3]
+	fmls s0, s1, v2.s[3]
+	fmls d0, d1, v2.d[1]
+	fmls v0.2s, v1.2s, v2.s[2]
+	fmls v0.2d, v1.2d, v2.d[1]
+	smlsl v0.2d, v1.2s, v2.s[1]
+	smlsl2 v0.2d, v1.4s, v2.s[3]
+	umlsl v0.4s, v1.4h, v2.h[3]
+	umlsl2 v0.4s, v1.8h, v2.h[2]
+	sqdmlsl d0, s1, v2.s[1]
+	sqdmlsl v0.2d, v1.2s, v2.s[1]
+	sqdmlsl2 v0.2d, v1.4s, v2.s[3]
+
+	mul v0.4h, v1.4h, v2.h[3]
+	mul v0.8h, v1.8h, v2.h[7]
+	mul v0.2s, v1.2s, v2.s[1]
+	mul v0.4s, v1.4s, v2.s[3]
+	fmlal2 v0.2s, v1.2h, v2.h[3]
+	fmlal2 v0.4s, v1.4h, v2.h[3]
+	fmul s0, s1, v2.s[3]
+	fmul d0, d1, v2.d[1]
+	fmul v0.2s, v1.2s, v2.s[2]
+	fmul v0.2d, v1.2d, v2.d[1]
+	fmulx s0, s1, v2.s[3]
+	fmulx d0, d1, v2.d[1]
+	fmulx v0.2s, v1.2s, v2.s[2]
+	fmulx v0.2d, v1.2d, v2.d[1]
+	smull v0.2d, v1.2s, v2.s[1]
+	smull2 v0.2d, v1.4s, v2.s[3]
+	umull v0.4s, v1.4h, v2.h[3]
+	umull2 v0.4s, v1.8h, v2.h[2]
+	sqdmull d0, s1, v2.s[1]
+	sqdmull v0.2d, v1.2s, v2.s[1]
+	sqdmull2 v0.2d, v1.4s, v2.s[3]
+
+	sqdmulh s0, s1, v2.s[3]
+	sqdmulh v0.2s, v1.2s, v2.s[1]
+	fmlsl2 v0.2s, v1.2h, v2.h[3]
+	fmlsl2 v0.4s, v1.4h, v2.h[3]
+	sqrdmulh s0, s1, v2.s[3]
+	sqrdmulh v0.2s, v1.2s, v2.s[1]
+	sqrdmlah s0, s1, v2.s[3]
+	sqrdmlah v0.2s, v1.2s, v2.s[1]
+	udot v0.2s, v1.8b, v2.4b[3]
+	sdot v0.4s, v1.16b, v2.4b[2]
+	sqrdmlsh s0, s1, v2.s[3]
+	sqrdmlsh v0.2s, v1.2s, v2.s[1]
+
+	fcmla v0.4h, v1.4h, v2.h[1], #0
+	fcmla v0.8h, v1.8h, v2.h[3], #90
+	fcmla v0.4h, v1.4h, v2.h[1], #180
+	fcmla v0.4s, v1.4s, v2.s[1], #270

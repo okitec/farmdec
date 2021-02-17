@@ -506,12 +506,16 @@ enum Op {
 	A64_FMLA_VEC,
 	A64_FMLAL_ELEM,
 	A64_FMLAL_VEC,
+	A64_FMLAL2_ELEM,
+	A64_FMLAL2_VEC,
 	A64_FCMLA_ELEM, // Inst.imm := rotation in degrees (0, 90, 180, 270)
 	A64_FCMLA_VEC,  // ---
 	A64_FMLS_ELEM,
 	A64_FMLS_VEC,
 	A64_FMLSL_ELEM,
 	A64_FMLSL_VEC,
+	A64_FMLSL2_ELEM,
+	A64_FMLSL2_VEC,
 
 	// SIMD Floating-Point Computation (reduce)
 	A64_FADDP,
@@ -685,12 +689,11 @@ enum Op {
 
 	A64_SQNEG,
 
+	// Only these rounded variations exist
 	A64_SQRDMLAH_ELEM,
 	A64_SQRDMLAH_VEC,	
 	A64_SQRDMLSH_ELEM,
 	A64_SQRDMLSH_VEC,
-	A64_SQRDMULH_ELEM,
-	A64_SQRDMULH_VEC,
 
 	A64_SQSHLU,
 	A64_SQSHRUN, // SQSHRUN, SQRSHRUN
@@ -978,6 +981,10 @@ struct Inst {
 			u32 dst; // destination index
 			u32 src; // source index
 		} ins_elem; // INS (element)
+		struct {
+			u32 idx;
+			u32 rot;
+		} fcmla_elem;
 	};
 };
 

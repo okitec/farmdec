@@ -2428,11 +2428,11 @@ static Inst decode_simd(u32 binst) {
 		case 0b10110: inst.op = A64_SQDMULH_VEC; set_scalarity = 1; inst.flags |= (U) ? SIMD_ROUND : 0; break;
 		case 0b10111: inst.op = A64_ADDP_VEC; break;
 		case 0b11000: is_fp = true; inst.op = (U) ? A64_FMAXNMP_VEC : ((size&0b10) ? A64_FMINNM_VEC : A64_FMAXNM_VEC); break;
-		case 0b11001: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FMLSL_VEC : A64_FMLAL_VEC) : ((size&0b10) ? A64_FMLS_VEC : A64_FMLA_VEC); break;
+		case 0b11001: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FMLSL2_VEC : A64_FMLAL2_VEC) : ((size&0b10) ? A64_FMLS_VEC : A64_FMLA_VEC); break;
 		case 0b11010: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FABD_VEC : A64_FADDP_VEC) : ((size&0b10) ? A64_FSUB_VEC : A64_FADD_VEC); break;
 		case 0b11011: is_fp = true; inst.op = (U) ? A64_FMUL_VEC : ((scalar) ? A64_FMULX : A64_FMULX_VEC); break;
 		case 0b11100: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FCMGT_REG : A64_FCMGE_REG) : A64_FCMEQ_REG; set_scalarity = 1; break;
-		case 0b11101: is_fp = true; inst.op = (size&0b10) ? A64_FACGT : A64_FACGE; set_scalarity = 1; break;
+		case 0b11101: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FACGT : A64_FACGE) : ((size&0b10) ? A64_FMLSL_VEC : A64_FMLAL_VEC); break; set_scalarity = 1; break;
 		case 0b11110: is_fp = true; inst.op = (size&0b10) ? A64_FMIN_VEC : A64_FMAX_VEC; break;
 		case 0b11111: is_fp = true; inst.op = (U) ? A64_FDIV_VEC : ((size&0b10) ? A64_FRSQRTS_VEC : A64_FRECPS_VEC); break;
 		}
@@ -2631,8 +2631,135 @@ static Inst decode_simd(u32 binst) {
 		inst.rn = regRn(binst);
 		break;
 	}
-	case IndexedElem:
-		return errinst("SIMD/IndexedElem: not yet implemented");
+	case IndexedElem: {
+		u8 opcode = (binst >> 12) & 0b1111;
+		bool set_signedness = false; // set Inst.flags.signed = NOT (<U bit>)?
+		bool set_scalarity = false;  // set Inst.flags.scalar = <scalar bit>?
+
+		// Bits H:L:M encode the index. Note that H is at pos 11, while
+		// the lower two bits L:M are at pos 21:20.
+		u8 hlm = ((binst >> (11-2)) & 0b100) | ((binst >> 20) & 0b11); 
+
+		// use only 4 bits to encode Rm, restricting it to V0..V15?
+		// used when the M bit is part of the index and not part of the register number
+		bool short_rm = false;
+
+		// The index usually depends on the size, with the exception of some instructions.
+		u8 idx = 0;
+		switch (size) {
+		case 0b01: idx = hlm; short_rm = true; break; // FSZ_H -> H:L:M [0,1,2,3,4,5,6,7]
+		case 0b10: idx = hlm >> 1; break;             // FSZ_S -> H:L   [0,1,2,3]
+		case 0b11: idx = hlm >> 2; break;             // FSZ_D -> H     [0,1]
+		default:
+			break;
+		}
+
+		inst.imm = idx; // sensible default
+
+		// FCMLA is an outlier: it has two immediates, the index and the rotation,
+		// the latter of which is encoded in the middle of the opcode field!
+		if (U && (opcode & 0b1001) == 0b0001) {
+			inst.op = A64_FCMLA_ELEM;
+			switch ((opcode>>1) & 0b11) {
+			case 0b00: inst.fcmla_elem.rot =   0; break;
+			case 0b01: inst.fcmla_elem.rot =  90; break;
+			case 0b10: inst.fcmla_elem.rot = 180; break;
+			case 0b11: inst.fcmla_elem.rot = 270; break;
+			}
+
+			// We can only index the lower halves.
+			switch (size) {
+			case 0b01: inst.fcmla_elem.idx = hlm >> 1; break; // H:L
+			case 0b10: inst.fcmla_elem.idx = hlm >> 2; break; // H
+			}
+
+			inst.rd = regRd(binst);
+			inst.rn = regRn(binst);
+			inst.rm = regRm(binst);
+			break;
+		}
+
+		switch (opcode) {
+		case 0b0000:
+			if (U) {
+				inst.op = A64_MLA_ELEM;
+				break;
+			}
+
+			inst.op = A64_FMLAL_ELEM;
+			inst.flags = set_vec_arrangement(inst.flags, FSZ_H << 1 | Q);
+			inst.imm = hlm;
+			short_rm = true; // M is used in index
+			break;
+		case 0b0001: inst.op = A64_FMLA_ELEM; set_scalarity  = true; break;
+		case 0b0010: inst.op = A64_MLAL_ELEM; set_signedness = true; break;
+		case 0b0011: inst.op = A64_SQDMLAL_ELEM; set_scalarity = true; inst.flags |= SIMD_SIGNED; break;
+		case 0b0100:
+			if (U) {
+				inst.op = A64_MLS_ELEM;
+				break;
+			}
+
+			inst.op = A64_FMLSL_ELEM;
+			inst.flags = set_vec_arrangement(inst.flags, FSZ_H << 1 | Q);
+			inst.imm = hlm;
+			short_rm = true; // M is used in index
+			break;
+		case 0b0101: inst.op = A64_FMLS_ELEM; set_scalarity  = true; break;
+		case 0b0110: inst.op = A64_MLSL_ELEM; set_signedness = true; break;
+		case 0b0111: inst.op = A64_SQDMLSL_ELEM; set_scalarity = true; inst.flags |= SIMD_SIGNED; break;
+		case 0b1000:
+			if (!U) {
+				inst.op = A64_MUL_ELEM;
+				break;
+			}
+
+			inst.op = A64_FMLAL2_ELEM;
+			inst.flags = set_vec_arrangement(inst.flags, FSZ_H << 1 | Q);
+			inst.imm = hlm;
+			short_rm = true; // M is used in index
+			break;
+		case 0b1001: inst.op = (U) ? A64_FMULX_ELEM : A64_FMUL_ELEM; set_scalarity = true; break;
+		case 0b1010: inst.op = A64_MULL_ELEM; set_signedness = true; break;
+		case 0b1011: inst.op = A64_SQDMULL_ELEM; set_scalarity = true; inst.flags |= SIMD_SIGNED; break;
+		case 0b1100:
+			if (!U) {
+				inst.op = A64_SQDMULH_ELEM;
+				set_scalarity = true;
+				inst.flags |= SIMD_SIGNED;
+				break;
+			}
+			inst.op = A64_FMLSL2_ELEM;
+			inst.flags = set_vec_arrangement(inst.flags, FSZ_H << 1 | Q);
+			inst.imm = hlm;
+			short_rm = true; // M is used in index
+			break;
+		case 0b1101:
+			inst.op = (U) ? A64_SQRDMLAH_ELEM : A64_SQDMULH_ELEM; // SQRDMULH, SQRDMLAH
+			inst.flags |= SIMD_SIGNED | SIMD_ROUND;
+			set_scalarity = true;
+			break;
+		case 0b1110: // e.g.: udot v0.2s, v1.8b, v2.4b[idx] (idx = 0..3)
+			inst.op = A64_DOT_ELEM;
+			inst.flags = set_vec_arrangement(inst.flags, FSZ_B << 1 | Q);
+			inst.imm = hlm >> 1; // H:L
+			set_signedness = true;
+			break;
+		case 0b1111: inst.op = A64_SQRDMLSH_ELEM; inst.flags |= SIMD_SIGNED | SIMD_ROUND; set_scalarity = true; break;
+		}
+
+		if (set_signedness)
+			inst.flags |= (U) ? 0 : SIMD_SIGNED;
+
+		if (set_scalarity)
+			inst.flags |= (scalar) ? SIMD_SCALAR : 0;
+
+		inst.rd = regRd(binst);
+		inst.rn = regRn(binst);
+		inst.rm = regRm(binst);
+		inst.rm = (short_rm) ? (inst.rm&0b1111) : inst.rm;
+		break;
+	}
 	}
 
 	return inst;
