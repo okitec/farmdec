@@ -1237,7 +1237,6 @@ static Inst loads_and_stores(u32 binst) {
 		bool even = (binst >> 21) & 1; // R(1): determines evenness of inst: R=0 → LD1, LD3; R=1 → LD2, LD4
 		FPSize size = 0;
 		u8 size_field = (binst >> 10) & 0b11;         // size(2) is called "size", but is actually part of index
-		VectorArrangement va = (size_field << 1) | Q; // size(2):Q(1)
 		uint nreg = 0;
 
 		if (load) {
@@ -1274,6 +1273,8 @@ static Inst loads_and_stores(u32 binst) {
 			// No STxR instructions, since "Store and Replicate to all Lanes" is nonsensical.
 			}
 		}
+
+		VectorArrangement va = (size << 1) | Q;
 
 		switch (inst.op) {
 		case A64_LD1R: case A64_LD1_SINGLE: case A64_ST1_SINGLE: nreg = 1; break;
