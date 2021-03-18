@@ -23,7 +23,7 @@ exclusive:
 	ldaxp x1, x2, [x23]
 	stxp w3, x4, x2, [x24]
 	stlxp w3, x4, x2, [x24]
-	casp w0, w1, w2, w3, [sp]
+	casp w2, w3, w4, w5, [sp]
 	casal x2, x5, [sp]
 
 ordered:

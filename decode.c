@@ -1330,6 +1330,7 @@ static Inst loads_and_stores(u32 binst) {
 				inst.op = A64_CAS;
 				inst.ldst_order.load = (load) ? MO_ACQUIRE : MO_NONE;
 				inst.ldst_order.store = (o0) ? MO_RELEASE : MO_NONE;
+				inst.rs = regRm(binst);
 				goto common;
 			}
 
@@ -1342,6 +1343,7 @@ static Inst loads_and_stores(u32 binst) {
 
 				// size+2: size=00 → SZ_W (10), size=01 → SZ_X (11) here.
 				size += 2;
+				inst.rs = regRm(binst);
 				goto common;
 			}
 
