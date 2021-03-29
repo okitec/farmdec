@@ -313,14 +313,7 @@ static Inst data_proc_imm(u32 binst) {
 	return inst;
 }
 
-// Returns the 0-based index of the highest bit. Should be compiled down
-// to a single native instruction.
-static int highest_bit(unsigned int x) {
-#if defined __has_builtin && __has_builtin (__builtin_clz)
-	// 31 - #leading zeroes
-	// or 63 - #leading zeroes
-	return (8*sizeof(x)-1) - __builtin_clz(x); // GCC and Clang.
-#else
+static int fallback_highest_bit(unsigned int x) {
 	// 43210  n
 	// -----  -
 	// 01001  0
@@ -333,6 +326,21 @@ static int highest_bit(unsigned int x) {
 		n++;
 	} while (x != 1);
 	return n;
+}
+
+// Returns the 0-based index of the highest bit. Should be compiled down
+// to a single native instruction.
+static int highest_bit(unsigned int x) {
+#ifndef __has_builtin
+	return fallback_highest_bit(x);
+#else
+#  if __has_builtin (__builtin_clz)
+	// 31 - #leading zeroes
+	// or 63 - #leading zeroes
+	return (8*sizeof(x)-1) - __builtin_clz(x); // GCC and Clang.
+#  else
+	return fallback_highest_bit(x);
+#  endif
 #endif
 }
 
