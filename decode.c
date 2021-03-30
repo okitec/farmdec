@@ -2449,13 +2449,13 @@ static Inst decode_simd(u32 binst) {
 		case 0b10101: inst.op = A64_MINP; set_signedness = 1; break;
 		case 0b10110: inst.op = A64_SQDMULH_VEC; set_scalarity = 1; inst.flags |= (U) ? SIMD_ROUND : 0; break;
 		case 0b10111: inst.op = A64_ADDP_VEC; break;
-		case 0b11000: is_fp = true; inst.op = (U) ? A64_FMAXNMP_VEC : ((size&0b10) ? A64_FMINNM_VEC : A64_FMAXNM_VEC); break;
+		case 0b11000: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FMINNMP_VEC : A64_FMAXNMP_VEC) : ((size&0b10) ? A64_FMINNM_VEC : A64_FMAXNM_VEC); break;
 		case 0b11001: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FMLSL2_VEC : A64_FMLAL2_VEC) : ((size&0b10) ? A64_FMLS_VEC : A64_FMLA_VEC); break;
 		case 0b11010: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FABD_VEC : A64_FADDP_VEC) : ((size&0b10) ? A64_FSUB_VEC : A64_FADD_VEC); break;
 		case 0b11011: is_fp = true; inst.op = (U) ? A64_FMUL_VEC : ((scalar) ? A64_FMULX : A64_FMULX_VEC); break;
 		case 0b11100: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FCMGT_REG : A64_FCMGE_REG) : A64_FCMEQ_REG; set_scalarity = 1; break;
 		case 0b11101: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FACGT : A64_FACGE) : ((size&0b10) ? A64_FMLSL_VEC : A64_FMLAL_VEC); break; set_scalarity = 1; break;
-		case 0b11110: is_fp = true; inst.op = (size&0b10) ? A64_FMIN_VEC : A64_FMAX_VEC; break;
+		case 0b11110: is_fp = true; inst.op = (U) ? ((size&0b10) ? A64_FMINP_VEC : A64_FMAXP_VEC) : ((size&0b10) ? A64_FMIN_VEC : A64_FMAX_VEC); break;
 		case 0b11111: is_fp = true; inst.op = (U) ? A64_FDIV_VEC : ((size&0b10) ? A64_FRSQRTS_VEC : A64_FRECPS_VEC); break;
 		}
 

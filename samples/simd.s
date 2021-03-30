@@ -125,6 +125,7 @@ threesame:
 	fmaxnm v1.2s, v2.2s, v3.2s
 	fminnm v1.2s, v2.2s, v3.2s
 	fmaxnmp v1.2s, v2.2s, v3.2s
+	fminnmp v1.2s, v2.2s, v3.2s
 	fmla v1.2s, v2.2s, v3.2s
 	fmls v1.2s, v2.2s, v3.2s
 	fmlal2 v1.2s, v2.2h, v3.2h
@@ -144,6 +145,8 @@ threesame:
 	facgt v1.2s, v2.2s, v3.2s
 	fmax v1.2s, v2.2s, v3.2s
 	fmin v1.2s, v2.2s, v3.2s
+	fmaxp v1.2s, v2.2s, v3.2s
+	fminp v1.2s, v2.2s, v3.2s
 	frecps v1.2s, v2.2s, v3.2s
 	frsqrts v1.2s, v2.2s, v3.2s
 	fdiv v1.2s, v2.2s, v3.2s
