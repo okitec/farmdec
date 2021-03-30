@@ -282,7 +282,9 @@ tworegmisc:
 	sqxtn2 v1.4s, v2.2d
 	uqxtn s1, d2
 	fcvtn v1.4h, v2.4s
+	fcvtn2 v1.8h, v2.4s
 	fcvtxn v1.2s, v2.2d
+	fcvtxn2 v1.4s, v2.2d
 	fcvtxn s1, d2
 	fcvtl v1.4s, v2.4h
 	frintn v1.2d, v2.2d

@@ -2221,7 +2221,18 @@ static Inst decode_simd(u32 binst) {
 		case 0b01111: is_fp = true; inst.op = (U) ? A64_FNEG_VEC : A64_FABS_VEC; set_scalarity = 1; break;
 		case 0b10010: inst.op = (U) ? A64_SQXTUN : A64_XTN; set_scalarity = 1; break;
 		case 0b10100: inst.op = A64_QXTN; set_signedness = 1; set_scalarity = 1; break;
-		case 0b10110: is_fp = true; inst.op = (U) ? A64_FCVTXN : A64_FCVTN; set_scalarity = 1; break; // XXX FCVTXN vector arrangement is wrong -- the destination type Tb is 2s or 4s depending on sz:Q.
+		case 0b10110:
+			inst.op = (U) ? A64_FCVTXN : A64_FCVTN;
+			set_scalarity = 1;
+
+			// We store vector arrangement of the narrower destination, like all other
+			// Narrowing instructions. Since we set the arrangement here, is_fp = false.
+			switch ((binst >> 22) & 1) {
+			case 0: inst.flags = set_vec_arrangement(inst.flags, (FSZ_H << 1) | Q); break;
+			case 1: inst.flags = set_vec_arrangement(inst.flags, (FSZ_S << 1) | Q); break;
+			}
+
+			break;
 		case 0b10111: is_fp = true; inst.op = A64_FCVTL; break;
 		case 0b11000:
 			is_fp = true;
