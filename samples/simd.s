@@ -133,6 +133,7 @@ threesame:
 	fadd v1.2s, v2.2s, v3.2s
 	fsub v1.2s, v2.2s, v3.2s
 	fabd v1.2s, v2.2s, v3.2s
+	fabd d1, d2, d3
 	fmulx v1.2s, v2.2s, v3.2s
 	fmulx d1, d2, d3
 	fmul v1.2s, v2.2s, v3.2s
