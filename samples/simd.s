@@ -290,7 +290,12 @@ tworegmisc:
 	fcvtxn v1.2s, v2.2d
 	fcvtxn2 v1.4s, v2.2d
 	fcvtxn s1, d2
+
 	fcvtl v1.4s, v2.4h
+	fcvtl2 v1.4s, v2.8h
+	fcvtl v1.2d, v2.2s
+	fcvtl2 v1.2d, v2.4s
+
 	frintn v1.2d, v2.2d
 	frinta v1.2d, v2.2d
 	frintm v1.2d, v2.2d

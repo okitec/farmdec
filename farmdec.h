@@ -891,6 +891,13 @@ struct Inst {
 	//     opcode bloat, it's encoded with the SIMD_SCALAR bit. The difference is
 	//     that Scalar variants have just one element. Its precision is encoded in
 	//     the top two bits of the vector arrangement.
+	//     When the operands are of different types, the stored vector arrangement
+	//     depends on the instruction, but is generally the more ``detailed'' one.
+	//     For example, instructions with L and L2 suffix such as SHLL extend the
+	//     elements of either the upper or lower half of their source register, so
+	//     its vector arrangement is stored. Conversely, instructions that narrow
+	//     the source operands (N suffix, e.g. FCVTN) store the vector arrangement
+	//     of the destination. 
 	// GPR SIMD:    - |SGN|SCA|----vec----| - | W32
 	//     Transport instructions like DUP_GPR, INS_GPR that have a general-purpose
 	//     register as source or destination encode w32 with the usual bit.

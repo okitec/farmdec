@@ -2233,7 +2233,17 @@ static Inst decode_simd(u32 binst) {
 			}
 
 			break;
-		case 0b10111: is_fp = true; inst.op = A64_FCVTL; break;
+		case 0b10111:
+			// FCVTL{2} decodes the source vector's size in size(0):Q a bit differently compared
+			// to most FP operations, so we set the arrangement manually and have is_fp = false.
+			inst.op = A64_FCVTL;
+			switch ((size&1) << 1 | Q) {
+			case 0b00: inst.flags = set_vec_arrangement(inst.flags, VA_4H); break;
+			case 0b01: inst.flags = set_vec_arrangement(inst.flags, VA_8H); break;
+			case 0b10: inst.flags = set_vec_arrangement(inst.flags, VA_2S); break;
+			case 0b11: inst.flags = set_vec_arrangement(inst.flags, VA_4S); break;
+			}
+			break;
 		case 0b11000:
 			is_fp = true;
 			inst.op = A64_FRINT_VEC;
